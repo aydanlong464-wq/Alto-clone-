@@ -814,15 +814,17 @@ const orbMat = new THREE.ShaderMaterial({ uniforms: U(), transparent: true, dept
       vec3 n = normalize(vN), v = normalize(vV);
       float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.2);
       vec3 film = clamp(abs(mod(fres * 5.0 + n.y * 1.5 + uTime * 0.4 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-      vec3 col = mix(u_bubble, film, 0.55) * (1.0 + uNight * 0.4);
-      float a = 0.12 + fres * 0.88;
+      vec3 blue = mix(vec3(0.25, 0.68, 1.0), u_bubble, 0.25);
+      vec3 col = mix(blue, film, 0.45) * (1.0 + uNight * 0.4);
+      float a = 0.26 + fres * 0.74;
+      col = mix(col, vec3(0.75, 0.95, 1.0), (1.0 - fres) * 0.25);
       float hl = smoothstep(0.9, 0.975, dot(n, normalize(vec3(-0.45, 0.6, 0.66))));
       float hl2 = smoothstep(0.95, 0.99, dot(n, normalize(vec3(0.5, -0.45, 0.74)))) * 0.6;
       col = mix(col, vec3(1.0), max(hl, hl2)); a = max(a, max(hl, hl2));
       gl_FragColor = vec4(col, a);
     }` });
-const orbGeo = new THREE.SphereGeometry(0.7, 30, 20), glintGeo = new THREE.SphereGeometry(0.13, 10, 8), glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-let orbs = [], chains = {}, chainSeq = 0;
+const orbGeo = new THREE.SphereGeometry(0.85, 30, 20), glintGeo = new THREE.SphereGeometry(0.15, 10, 8), glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+let orbs = [], chains = {}, chainSeq = 0, speedBoost = 0;
 const PMAX = 2400, pPos = new Float32Array(PMAX * 3).fill(-9999);
 const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
 const pMat = new THREE.PointsMaterial({ size: 0.55, map: dotTex, color: 0xdff8ff, transparent: true, depthWrite: false, sizeAttenuation: true, toneMapped: false });
@@ -877,6 +879,7 @@ const noteF = st => pal.root * 4 * Math.pow(2, st / 12);
 const sfx = {
   smooth(n) { tone(noteF(SCALE[Math.min(n, 9)]), 0.3, 'triangle', 0.07); tone(noteF(SCALE[Math.min(n, 9)] + 7), 0.3, 'sine', 0.05, 0, 0.06); },
   splash() { hit(0.6, 0.35, 700); tone(160, 0.3, 'sine', 0.12, 60); },
+  boost() { hit(0.35, 0.22, 1800, 'highpass'); tone(noteF(0), 0.35, 'sine', 0.08, noteF(12)); tone(noteF(7), 0.3, 'triangle', 0.04, noteF(19), 0.04); },
   crash() { hit(1.1, 0.55, 650); tone(300, 0.7, 'sine', 0.16, 60); tone(noteF(4) / 2, 0.8, 'triangle', 0.05, noteF(0) / 4, 0.15); },
   plunge() { hit(0.9, 0.4, 500); tone(300, 0.6, 'sine', 0.1, 70); },
   orb(n) { const st = SCALE[n % SCALE.length]; tone(noteF(st), 0.24, 'sine', 0.09); tone(noteF(st) * 2, 0.12, 'triangle', 0.03); },
@@ -913,7 +916,7 @@ const difficulty = () => clamp(dist / 4000, 0, 1);
 const score = () => Math.floor(trickScore + dist);
 
 function resetWorld(isSafe) {
-  safe = isSafe; for (const o of orbs) scene.remove(o.mesh); orbs = []; chains = {}; bumps = []; callouts = [];
+  safe = isSafe; speedBoost = 0; for (const o of orbs) scene.remove(o.mesh); orbs = []; chains = {}; bumps = []; callouts = [];
   simT = 0; dist = 0; trickScore = 0; smoothRun = 0; smoothTotal = 0; bestAir = 0; orbStreak = 0; fever = 0; feverT = 0; newBest = false; timeLeft = TIME0;
   lastBump = null; rogue = 0; R.spin = 0; R.x = 0; R.speed = 14; chaseX = -80;
   spawnAhead();
@@ -939,11 +942,11 @@ function spawnAhead() {
     bumps.push(b); lastBump = b;
     if (!safe && c > 60) {
       const v = Math.max(14, R.speed), xa = (c + C_SWELL * R.x / v) / (1 + C_SWELL / v);
-      if (chance(0.7)) {
-        // a string of bubbles down this wave's back, riding along with it
-        const id = ++chainSeq, n = 7 + Math.floor(rand(0, 6)), span = b.wr * 1.6;
-        chains[id] = { n, got: 0, done: false };
-        for (let k = 0; k < n; k++) addOrb(c + b.wr * 0.12 + (k / (n - 1)) * span, id, k);
+      if (chance(0.38 + 0.12 * d)) {
+        // a lone speed bubble somewhere on this wave, riding along with it; sometimes a pair
+        const off = rand(-b.wl * 0.6, b.wr * 1.4);
+        addOrb(c + off);
+        if (chance(0.25)) addOrb(c + off + rand(3, 6));
       }
     }
   }
@@ -951,7 +954,7 @@ function spawnAhead() {
 }
 function addOrb(x, chain, k) {
   const mesh = new THREE.Mesh(orbGeo, orbMat), glint = new THREE.Mesh(glintGeo, glintMat);
-  glint.position.set(-0.26, 0.33, 0.53); mesh.add(glint); mesh.renderOrder = 6;
+  glint.position.set(-0.32, 0.4, 0.64); mesh.add(glint); mesh.renderOrder = 6;
   scene.add(mesh); orbs.push({ x0: x + C_SWELL * simT, x, y: 0, chain, k, mesh, t: Math.random() * 6 });
 }
 function callout(text, sub, life = 1.1) { callouts.unshift({ text, sub, age: 0, life }); if (callouts.length > 4) callouts.length = 4; }
@@ -1014,7 +1017,12 @@ function step(dt) {
   let hold = input.held;
   if (demo) hold = R.mode === 'water' ? slopeAt(R.x, simT) < -0.04 : (R.mode === 'air' && R.vy < 0 && Math.abs(wrap(Math.atan2(R.vy, R.vx) - Math.atan(slopeAt(R.x + R.vx * 0.3, simT)))) > 0.25);
   if (state === 'over') hold = false;
-  const g = G * (hold ? HOLD : 1), maxs = MAXS + (fever ? 6 : 0);
+  const g = G * (hold ? HOLD : 1), maxs = MAXS + (fever ? 6 : 0) + (speedBoost > 0 ? 14 : 0);
+  if (speedBoost > 0) {
+    speedBoost -= dt;
+    if (R.mode === 'water') R.speed += 16 * dt; else if (R.mode === 'air') R.vx += 9 * dt;
+    if (chance(0.6)) emit(R.x - 0.8, R.y + rand(0.3, 2), -R.vx * 0.3 + rand(-1, 1), rand(-0.5, 1.5), 0.45, rand(-0.5, 0.5));
+  }
   if (R.mode === 'water') {
     const th = Math.atan(slopeAt(R.x, simT));
     const gw = hold ? G * (th > 0 ? HOLD_UP : HOLD) : G;
@@ -1073,24 +1081,14 @@ function step(dt) {
   }
   if (state === 'play') {
     for (const o of orbs) {
-      o.x = o.x0 - C_SWELL * simT; o.y = H(o.x, simT) + 0.95;
-      const ch = chains[o.chain];
-      if (!o.taken && Math.abs(o.x - R.x) < 1.5 && Math.abs(o.y - (R.y + 1.0)) < 1.6) {
-        o.taken = true; ch.got++;
-        trickScore += 15 * (fever ? 2 : 1); sfx.orb(ch.got - 1);
-        if (R.mode === 'water') R.speed = Math.min(R.speed + 0.35, MAXS + 6); else R.vx += 0.3;
-        for (let i = 0; i < 10; i++) emit(o.x + rand(-0.3, 0.3), o.y + rand(-0.3, 0.3), rand(-3, 3), rand(-1, 4), 0.45, rand(-1.5, 1.5));
-        for (let i = 0; i < 3; i++) emitMist(o.x, o.y, rand(-1.5, 1.5), rand(0.5, 1.5), 0.6);
-      }
-      // when the last bubble of a string goes by, a clean sweep pays out
-      if (ch && !ch.done && o.k === ch.n - 1 && o.x < R.x - 2) {
-        ch.done = true;
-        if (ch.got === ch.n) {
-          const pts = 40 * ch.n * (fever ? 2 : 1);
-          trickScore += pts; callout('Bubble chain!', `${ch.n} in a row  +${pts}`);
-          if (R.mode === 'water') R.speed = Math.min(R.speed + 3, MAXS + 8); else R.vx += 3;
-          [0, 4, 7, 12].forEach((st, i) => tone(noteF(st + 12), 0.25, 'sine', 0.05, 0, i * 0.05));
-        }
+      o.x = o.x0 - C_SWELL * simT; o.y = H(o.x, simT) + 1.0;
+      if (!o.taken && Math.abs(o.x - R.x) < 1.7 && Math.abs(o.y - (R.y + 1.0)) < 1.9) {
+        // pop: an instant kick, then a couple of seconds of extra push
+        o.taken = true; speedBoost = 2.2;
+        if (R.mode === 'water') R.speed = Math.min(R.speed + 6, MAXS + 14); else R.vx += 5;
+        trickScore += 25 * (fever ? 2 : 1); callout('Speed bubble!', 'Boost!', 0.9); sfx.boost();
+        for (let i = 0; i < 16; i++) emit(o.x + rand(-0.4, 0.4), o.y + rand(-0.4, 0.4), rand(-4, 4), rand(-1, 5), 0.5, rand(-2, 2));
+        for (let i = 0; i < 5; i++) emitMist(o.x, o.y, rand(-2, 2), rand(0.5, 2), 0.7);
       }
     }
   }
@@ -1136,7 +1134,7 @@ function update(dt) {
   riderRoot.position.set(R.x, R.y, 0); riderRoot.rotation.z = R.ang;
   if (figure.visible) poseFigure(R.tuck, R.wings, time);
   if (custom) { custom.scale.y = 1 - R.tuck * 0.15; custom.rotation.y = modelYaw; }
-  jellyU.uFever.value = fever ? 1 : 0; jellyU.uTime.value = time;
+  jellyU.uFever.value = fever || speedBoost > 0 ? 1 : 0; jellyU.uTime.value = time;
 
   // camera: 2.5D perspective side view, tilted down so the surface rolls away and the cutaway shows below
   const aspect = W / H_, tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
