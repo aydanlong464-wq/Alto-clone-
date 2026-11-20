@@ -1,6 +1,6 @@
 # Aero Surf
 
-An endless 2.5D surfing game in vivid Frutiger Aero blues and greens. Everything is real 3D (three.js) seen from a side-scrolling perspective camera. A shaded ocean rolls away to glossy islands under a rainbow, with big bubbles drifting through the sky. The front of the ocean is cut open like an aquarium, so you see dolphins, fish, light rays and a glowing grassy seabed under the waves.
+An endless 2.5D surfing game in vivid Frutiger Aero blues and greens. Everything is real 3D (three.js) seen from a side-scrolling perspective camera. A shaded ocean rolls away to glossy islands under a rainbow, with big bubbles drifting through the sky. The front of the ocean is cut open like an aquarium, so you see a whole reef under the waves: dolphins, clownfish, tangs, angelfish, a shimmering school that swims alongside you, pufferfish that puff up, glowing jellyfish, sea turtles, coral, crabs and starfish on a glowing seabed.
 
 The surfer is a glossy jelly figure in the style of an old Messenger buddy icon: round arms and legs, a floating head, a big soft highlight and a dark glassy outline. It comes in 10 skins.
 
