@@ -22,14 +22,14 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 | M | Mute |
 | R | Turn a custom model 90° |
 
-It plays like Dune: one touch, and the surfer points along its flight path. Unlike Dune, the waves roll toward you, so the hills keep moving under you mid-flight.
+It plays like Dune: one touch, and the surfer points along its flight path. Your speed comes from pressing: coast without holding and you slowly lose speed until the whitewater catches you. Unlike Dune, the waves roll toward you, so the hills keep moving under you mid-flight.
 
 - **The waves are huge.** Swells grow as you go, and monster waves come in sets.
 - **Diving turns height into speed.** Just above the water, your path swoops onto the wave and keeps its momentum, so a well-timed dive onto a downslope sends you flying down it.
 - **Perfect!** Come down with your path matching a downslope for a speed boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
 - **Up the face!** Meeting an oncoming wave face, you ride up it and can launch again. You keep most of your speed.
 - **Wipeout!** Slamming steeply into a wave face ends the run, and the margin for error tightens the further you get.
-- **Bounce bubbles.** Rows of big clear rainbow soap bubbles float above the waves, like the bubbles in Tiny Wings 2. Come down on one and it pops and bounces you back up. Chain bounces without touching the water (**Bounce ×2, ×3…**) for growing points. Some bubbles hold gold coins that pay out when they pop. Hitting one from below or the side just pops it.
+- **Bounce bubbles.** Rows of big clear rainbow soap bubbles float above the waves, like the bubbles in Tiny Wings 2. Come down on one and it pops and bounces you back up, a little slower than you came in. They're spread out, so chaining bounces without touching the water (**Bounce ×2, ×3…**) takes well-timed dives, and each one in a chain scores more. Some bubbles hold gold coins that pay out when they pop. Hitting one from below or the side just pops it.
 - **Speed boosts.** Glowing chevrons (») ride on the waves. Grab one for an instant speed kick plus a couple of seconds of extra push. Like Tiny Wings' speed coins, a boost right before a wave face can send you somewhere you don't want to go.
 - **The whitewater.** A wall of breaking foam rolls in behind you and speeds up over time. Keep your speed up and it falls back; botch a few landings and it catches you. The WHITEWATER meter shows how close it is.
 - **Night mode** swaps in four night zones (Moonlit Lagoon, Bioluminescence, Aurora Night, Midnight Neon) with stars, a moon, aurora bands, glowing plankton and wake, glowing jellyfish and lit windows on the towers. Your choice is remembered.

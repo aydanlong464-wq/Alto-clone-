@@ -968,10 +968,11 @@ function spawnAhead() {
         addOrb(c + off);
         if (chance(0.25)) addOrb(c + off + rand(3, 6));
       }
-      if (c > 90 && chance(0.42 + 0.1 * d)) {
+      if (c > 90 && chance(0.26 + 0.08 * d)) {
         // a row of bounce bubbles floating above this wave
-        const n = 3 + Math.floor(rand(0, 4)), x0 = c + rand(-6, 10), gap = rand(7, 11), y0 = a + rand(6, 10);
-        for (let k = 0; k < n; k++) addAirBubble(x0 + k * gap, y0 + Math.sin(k * 1.3) * 1.2 + rand(-0.6, 0.6));
+        const n = 2 + Math.floor(rand(0, 3)), x0 = c + rand(-6, 12), y0 = a + rand(6, 11);
+        let bx = x0;
+        for (let k = 0; k < n; k++) { addAirBubble(bx, y0 + rand(-2.5, 3)); bx += rand(16, 26); }
       }
     }
   }
@@ -1010,7 +1011,7 @@ function land(sy) {
       }
     }
   } else if (diff < 0.75 || th < -0.03) {
-    R.mode = 'water'; R.vy = 0; R.speed = clamp(keep, MINS, MAXS + 4); R.ang = th; R.sq = 0.35;
+    R.mode = 'water'; R.vy = 0; R.speed = clamp(keep * (input.held || demo ? 1 : 0.86), MINS, MAXS + 4); R.ang = th; R.sq = 0.35;
     if (air > 0.35) { splash(R.x, sy, 24, 0.8); smoothRun = 0; }
   } else if (demo || diff < lerp(1.28, 0.88, difficulty()) || impact < lerp(17, 10.5, difficulty())) {
     smoothRun = 0;
@@ -1050,7 +1051,7 @@ function step(dt) {
   }
   if (R.mode === 'water') {
     const th = Math.atan(slopeAt(R.x, simT));
-    const gw = hold ? G * (th > 0 ? HOLD_UP : HOLD) : G;
+    const gw = hold ? G * (th > 0 ? HOLD_UP : HOLD) : G * (th < 0 ? 0.5 : 1);
     R.speed += (-gw * Math.sin(th) - FRIC - DRAG * R.speed * R.speed) * dt;
     if (state === 'over') R.speed *= Math.exp(-0.8 * dt);
     R.speed = clamp(R.speed, state === 'over' ? 0 : MINS, maxs);
@@ -1074,7 +1075,7 @@ function step(dt) {
       const ax = R.x + R.vx * 0.06, hAbove = R.y - H(ax, simT), thA = Math.atan(slopeAt(ax, simT));
       if (hAbove < 3.5 && thA < 0.65) {
         const v = Math.hypot(R.vx, R.vy), ph = Math.atan2(R.vy, R.vx);
-        const k = Math.min(1, (hold ? 7 : 4) * (thA > 0.12 ? 0.6 : 1) * dt * (1 - Math.max(0, hAbove) / 3.5));
+        const k = Math.min(1, (hold ? 7 : 1.2) * (thA > 0.12 ? 0.6 : 1) * dt * (1 - Math.max(0, hAbove) / 3.5));
         const nph = ph + (Math.max(thA - 0.05, -1.2) - ph) * k;
         R.vx = v * Math.cos(nph); R.vy = v * Math.sin(nph);
       }
@@ -1100,7 +1101,7 @@ function step(dt) {
   }
   if (state === 'play') {
     // a wall of whitewater rolls in behind you and speeds up; keep your speed or it catches you
-    const dd = difficulty(), cap = lerp(80, 45, dd);
+    const dd = difficulty(), cap = lerp(62, 40, dd);
     chaseX = Math.max(chaseX + (playT > 4 ? 16 + 14 * dd : 6) * dt, R.x - cap);
     if (chaseX >= R.x - 0.5) { wipeout('The whitewater caught you.'); return; }
   }
@@ -1123,7 +1124,7 @@ function step(dt) {
         b.popped = true;
         const fromAbove = R.mode === 'air' && R.vy < 2 && dy > -0.4;
         let pts = 20;
-        if (fromAbove) { bounceChain++; R.vy = Math.max(12.5 + bounceChain * 0.6, -R.vy * 0.8); R.vx += 0.6; pts = 30 * bounceChain; sfx.bounce(bounceChain); }
+        if (fromAbove) { bounceChain++; R.vy = Math.min(Math.max(8.5, -R.vy * 0.55), 11); R.vx *= 0.94; pts = 30 * bounceChain; sfx.bounce(bounceChain); }
         else sfx.pop();
         pts *= fever ? 2 : 1; trickScore += pts;
         let sub = `+${pts}`;
@@ -1377,7 +1378,7 @@ function drawHUD() {
   }
   if (fever) { ctx.font = fd(fs * 0.8); ctx.textAlign = 'left'; shadowText('FEVER', m + 82, m + h + 17, rgba(pal.accent), 4); }
   if (state === 'play' || state === 'over') {
-    const cap = lerp(80, 45, difficulty()), close = clamp(1 - (R.x - chaseX) / cap, 0, 1);
+    const cap = lerp(62, 40, difficulty()), close = clamp(1 - (R.x - chaseX) / cap, 0, 1);
     const bx = m, by = m + h + 32, bw = Math.max(130, fs * 7.2), bh2 = 8;
     ctx.font = fu(fs * 0.5, 700); ctx.textAlign = 'left'; shadowText('WHITEWATER', bx + 2, by + 1, close > 0.6 && Math.floor(time * 6) % 2 ? '#ff8080' : '#fff', 4);
     ctx.fillStyle = 'rgba(255,255,255,0.45)'; rr(bx, by + 8, bw, bh2, 4); ctx.fill();
