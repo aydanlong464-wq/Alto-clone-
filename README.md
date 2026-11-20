@@ -1,6 +1,8 @@
 # Aero Surf
 
-A 2.5D surfing game: Frutiger Aero gloss with Killer 7 colors. Everything is real 3D (three.js) seen from a side-scrolling perspective camera. The shaded ocean surface rolls away to glossy islands and blocky towers on the horizon, and the front of the ocean is cut open like an aquarium, so you see under the waves: light rays, caustics, iridescent fish, seaweed, bubbles and a 3D seabed. The surfer is a bubbly, iridescent figure with round arms and legs and a floating head.
+An endless 2.5D surfing game in vivid Frutiger Aero blues and greens. Everything is real 3D (three.js) seen from a side-scrolling perspective camera. A shaded ocean rolls away to glossy islands under a rainbow, with big bubbles drifting through the sky. The front of the ocean is cut open like an aquarium, so you see dolphins, fish, light rays and a glowing grassy seabed under the waves.
+
+The surfer is a glossy jelly figure in the style of an old Messenger buddy icon: round arms and legs, a floating head, a big soft highlight and a dark glassy outline. It comes in 10 skins.
 
 ## Play
 
@@ -14,23 +16,25 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 | --- | --- |
 | Hold (tap-and-hold / Space) | Push into the wave. Going downhill this builds speed; in the air you dive. |
 | Let go | Going uphill, letting go launches you off the crest |
+| K / **Skin** button | Change skin |
 | P / Esc | Pause |
 | M | Mute |
 | R | Turn a custom model 90° |
 
-- **Smooth!** Land matching a downslope to keep your speed and get a boost. Three in a row starts **Fever** (double points, faster, rainbow glow).
-- **Splash! / Plunge!** Landing against a wave costs speed. A hard bad landing dunks you under the water until you float back up.
-- **Beat the sunset.** You start with 45 seconds. Every 600 m you reach a new zone and get more time. When the clock runs out, night falls and the run ends.
-- **Zones:** Vista Lagoon, Red Room, Neon Floor, Ultraviolet, Sunset Gloss, Cyber Lime.
+- **The waves are huge.** Swells grow as you go, and monster waves come in sets.
+- **Smooth!** Land matching a downslope to keep your speed and get a boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
+- **Wipeout!** Land against a wave, nose-first or too hard, and the run ends. A slightly off landing just splashes and slows you down.
+- There is no timer. Surf as far as you can. The zones change every 600 m: Crystal Lagoon, Emerald Bay, Deep Blue, Lime Rain and Aqua Aurora.
 
 ## How it works
 
-The water is one wave function shared by the GPU shaders and the physics, so the board rides exactly what you see. Swells are a chain of rolling hills moving toward you, with small chop on top. You launch when a crest curves away faster than gravity can pull you down, and holding raises your gravity so you stick to the water and dive faster.
+The water is one wave function shared by the GPU shaders and the physics, so the board rides exactly what you see. Swells are steep-faced hills rolling toward you, with small chop on top. You launch when a crest curves away faster than gravity can pull you down. Holding raises your gravity, so you stick to the water and dive faster. Whether a landing is smooth, a splash or a wipeout depends on how your flight path lines up with the wave slope and how hard you hit.
 
 A custom surfer can be swapped in; see [`models/README.md`](models/README.md).
 
 ## Other versions
 
+- `surf-timed.html`: the previous 2.5D version with the sunset timer and smaller waves.
 - `surf2d.html`: the flat side-on (orthographic) version of this game.
 - `surf3d.html`: the earlier 3D-camera surf version with backflips, rocks and buoys.
 
