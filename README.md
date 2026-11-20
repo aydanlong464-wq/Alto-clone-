@@ -24,7 +24,7 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 
 It plays like Dune: one touch, and the surfer points along its flight path. Your speed comes from pressing: coast without holding and you slowly lose speed until the whitewater catches you. Unlike Dune, the waves roll toward you, so the hills keep moving under you mid-flight.
 
-- **The waves are huge.** Swells grow as you go, and monster waves come in sets.
+- **The waves are huge** and grow as you go.
 - **Diving turns height into speed.** Just above the water, your path swoops onto the wave and keeps its momentum, so a well-timed dive onto a downslope sends you flying down it.
 - **Perfect!** Come down with your path matching a downslope for a speed boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
 - **Up the face!** Meeting an oncoming wave face, you ride up it and can launch again. You keep most of your speed.
