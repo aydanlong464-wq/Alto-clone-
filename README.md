@@ -1,14 +1,12 @@
-# Aero Descent
+# Aero Surf
 
-A physics-based endless downhill runner in a glossy Frutiger Aero style: bright blue skies, puffy clouds, bubbles, lens flare, shiny green hills, wind turbines and a glossy 3D figure on a board.
+A physics-based endless surfing game in 3D, styled in Frutiger Aero: glossy turquoise ocean, puffy clouds, palm-tree islands, floating bubbles, lens flare, and a shiny 3D surfer on a 3D board.
 
 ## Play
 
-Open `index.html` in any modern browser. Nothing to install or build.
+Open `index.html` in a modern browser with WebGL. It loads three.js from the jsDelivr CDN, so it needs an internet connection.
 
 To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy from a branch → `main` / root**. The game then runs at `https://<your-username>.github.io/<repo-name>/`.
-
-`noir.html` is the earlier dark version (ASHFALL): cel-shaded silhouettes and bright colors that fade to black. It plays the same.
 
 ## Controls
 
@@ -18,15 +16,18 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 | Hold in the air | Backflip |
 | P / Esc | Pause |
 | M | Mute |
+| R | Turn a custom model 90° |
 
-Land with your board matching the slope or you wipe out.
+Land with your board matching the wave or you wipe out. Jump the rocks and buoys.
 
-## What's in it
+## How it works
 
-- **Physics.** Momentum carries you along the slope. You launch off crests and ramps on your own speed, gravity pulls you down, and landings convert your velocity back onto the slope.
-- **Tricks.** Backflips (double and triple count), perfect landings, big air, and grinding along cable lines. Tricks build a combo multiplier and give you a speed boost.
-- **Hazards.** Boulders to jump, lagoon chasms to clear, cliffs to drop.
-- **Zones.** Every 1000 m the world changes: Meadow, Lagoon, Sunset Gloss, Aurora (night) and Citrus.
-- **Sound.** Synthesized live with WebAudio: wind, board carve, a soft pad that changes key per zone, and chimes for bubbles and tricks.
+- **The ocean** is one wave function shared by the GPU shader and the physics, so the board rides exactly the water you see. Three wind-wave layers plus big rolling swells that move toward you. The shader adds sky reflections (Fresnel), sun glitter, turquoise light through raised water, foam on steep faces and crests, and a foam wake behind the board.
+- **Physics.** Gravity pulls you along the wave slope. You launch when a crest falls away faster than gravity can follow, and landings project your velocity back onto the water.
+- **The surfer** is built from glossy capsules with leg IK, so the knees bend as it crouches. You can swap in your own model; see [`models/README.md`](models/README.md).
+- **Zones** change every 1000 m: Lagoon, Deep Blue, Sunset Gloss, Aurora (night) and Citrus.
 
-Your best score is saved in the browser.
+## Other versions
+
+- `runner.html`: the 2D Aero downhill runner.
+- `noir.html`: the original dark, high-contrast 2D runner.
