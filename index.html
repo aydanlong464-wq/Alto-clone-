@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Aero Surf">
+<meta name="theme-color" content="#3aa6ff">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Aero Surf</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&family=Open+Sans:wght@400;600;700&display=swap">
@@ -20,6 +27,8 @@
   background: var(--sky);
 }
 html, body { height: 100%; margin: 0; background: var(--sky); color: var(--navy); overflow: hidden; }
+body { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0; box-sizing: border-box; }
+#sa { position: fixed; inset: 0; visibility: hidden; pointer-events: none; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
 body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; font-family: var(--font-ui); }
 canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #ui { pointer-events: none; }
@@ -31,6 +40,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   box-shadow: 0 2px 8px rgba(0, 50, 110, 0.25), inset 0 1px 0 #fff; cursor: pointer;
 }
 .pill:hover { filter: brightness(1.06); }
+@media (max-height: 430px) { .pill { font-size: 10px; padding: 5px 10px; } #controls { gap: 6px; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); } }
 .pill:focus-visible { outline: 2px solid var(--aqua); outline-offset: 2px; }
 #fail { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font: 600 16px/1.5 var(--font-ui); color: var(--navy); background: var(--sky); }
 #fail[hidden] { display: none; }
@@ -40,7 +50,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <body>
 <canvas id="gl" aria-label="Aero Surf. Hold to push into the wave, release to launch."></canvas>
 <canvas id="ui"></canvas>
+<div id="sa" aria-hidden="true"></div>
 <div id="controls">
+  <button id="full" class="pill" type="button" hidden>Full screen</button>
   <button id="skin" class="pill" type="button">Skin</button>
   <button id="model" class="pill" type="button">Load 3D model</button>
   <button id="mute" class="pill" type="button" aria-pressed="false">Sound on</button>
@@ -108,8 +120,8 @@ const key = new THREE.DirectionalLight(0xffffff, 2.6); scene.add(key); scene.add
 const rimL = new THREE.DirectionalLight(0x1aa7ff, 2.6); scene.add(rimL); scene.add(rimL.target);
 
 /* ───────────────────────── the wave function (shared by GPU and physics) ───────────────────────── */
-const MAXB = 16, MAXT = 16, CUT = 2.5, CURVE = 0.0016, C_SWELL = 1.0;
-const WAVES = [[1, 0.25, 26, 0.13], [0.85, -0.5, 15, 0.08], [0.35, 1, 8.5, 0.045]].map(([dx, dz, L, a], i) => {
+const MAXB = 16, MAXT = 16, CUT = 2.5, CURVE = 0.0016, C_SWELL = 5.0;
+const WAVES = [[-1, 0.25, 26, 0.13], [-0.85, -0.5, 15, 0.08], [-0.35, 1, 8.5, 0.045]].map(([dx, dz, L, a], i) => {
   const n = Math.hypot(dx, dz), k = TAU / L; return { kx: dx / n * k, kz: dz / n * k, a, w: Math.sqrt(9.8 * k), ph: i * 1.7 };
 });
 const SHARED_U = {
@@ -700,32 +712,31 @@ function land(sy) {
   const demo = state !== 'play', air = R.airT;
   R.y = sy;
   if (air > 0.35 && !demo) { bestAir = Math.max(bestAir, air); trickScore += Math.floor(air * 40) * (fever ? 2 : 1); }
-  const bd = wrap(R.ang - th), bad = Math.abs(bd);
   R.angVel = 0;
-  if (bad < 0.3 && th < -0.03 && diff < 0.8) {
-    R.mode = 'water'; R.vy = 0; R.speed = clamp(along * 1.04 + 1, MINS, MAXS + 8); R.ang = th;
+  if (diff < 0.32 && th < -0.03) {
+    R.mode = 'water'; R.vy = 0; R.speed = clamp(along * 1.05 + 1.5, MINS, MAXS + 8); R.ang = th;
     if (air > 0.35) {
-      R.sq = 0.25; splash(R.x, sy, 14, 0.6);
+      R.sq = 0.25; splash(R.x, sy, 18, 0.7);
       if (!demo) {
         smoothRun++; smoothTotal++;
-        const great = air > 1.1;
+        const great = air > 1.2;
         const pts = (great ? 150 : 80) * (fever ? 2 : 1);
         trickScore += pts; sfx.smooth(smoothRun);
-        callout(great ? 'Great Slide!' : 'Smooth!', `+${pts}`);
+        callout(great ? 'Perfect!' : 'Smooth!', `+${pts}`);
         if (smoothRun >= 3 && !fever) { fever = 1; feverT = 6; callout('Fever!', 'Double points', 1.6); sfx.fever(); flashA = 0.35; }
         else if (fever) feverT = Math.min(feverT + 1.5, 8);
       }
     }
-  } else if (bad < 0.6) {
-    R.mode = 'water'; R.vy = 0; R.speed = clamp(Math.max(along, 0) * (diff < 0.6 ? 1 : 0.8), MINS, MAXS); R.ang = th; R.sq = 0.35;
-    if (air > 0.35) { splash(R.x, sy, 22, 0.8); smoothRun = 0; }
-  } else if (demo || bad < 0.95 || impact < 9) {
+  } else if (diff < 0.6) {
+    R.mode = 'water'; R.vy = 0; R.speed = clamp(Math.max(along, 0), MINS, MAXS); R.ang = th; R.sq = 0.35;
+    if (air > 0.35) { splash(R.x, sy, 24, 0.8); smoothRun = 0; }
+  } else if (demo || diff < 1.0 || impact < 13) {
     smoothRun = 0;
     R.mode = 'water'; R.vy = 0; R.speed = clamp(Math.max(along, 0) * 0.55, MINS, MAXS); R.ang = th; R.sq = 0.5;
-    sfx.splash(); splash(R.x, sy, 40, 1); if (!demo) callout('Splash!', 'Match the board to the wave');
+    sfx.splash(); splash(R.x, sy, 40, 1); if (!demo && air > 0.35) callout('Splash!', 'Come down on the downslope');
   } else {
     smoothRun = 0;
-    wipeout(bd > 0 ? 'You landed tail-first.' : 'You hit the wave nose-first.'); return;
+    wipeout(th > 0.15 ? 'You slammed into the wave face.' : 'You came down too steep.'); return;
   }
   R.airT = 0;
 }
@@ -772,9 +783,8 @@ function step(dt) {
     R.vy -= g * dt; R.vx *= 1 - 0.004 * dt;
     R.x += R.vx * dt; R.y += R.vy * dt;
     R.speed = Math.hypot(R.vx, R.vy);
-    if (hold && !demo) R.angVel += (-ROT_B * input.side - R.angVel) * Math.min(1, 9 * dt);
-    else { R.angVel *= Math.exp(-5 * dt); R.ang += wrap(Math.atan2(R.vy, R.vx) * 0.85 - R.ang) * Math.min(1, (demo ? 5 : 1.3) * dt); }
-    R.ang += R.angVel * dt;
+    R.angVel = 0;
+    R.ang += wrap(Math.atan2(R.vy, R.vx) * 0.9 - R.ang) * Math.min(1, 6 * dt);
     if (fever && chance(0.5)) emit(R.x - 0.5, R.y + 0.8, rand(-2, 0), rand(-1, 1), 0.5);
     const sy = H(R.x, simT);
     if (R.y <= sy) land(sy);
@@ -942,11 +952,14 @@ function update(dt) {
 /* ───────────────────────── 2D overlay UI ───────────────────────── */
 const ui = document.getElementById('ui'), ctx = ui.getContext('2d');
 let W = 1, H_ = 1, DPR = 1, UIS = 1;
+const SA = { t: 0, r: 0, b: 0, l: 0 };
 function resize() {
   W = Math.max(1, innerWidth); H_ = Math.max(1, innerHeight); DPR = Math.min(window.devicePixelRatio || 1, 2);
   ui.width = Math.round(W * DPR); ui.height = Math.round(H_ * DPR);
   renderer.setSize(W, H_, false); UIS = Math.min(W / 1100, H_ / 700);
   camera.aspect = W / H_; camera.updateProjectionMatrix();
+  const cs = getComputedStyle(document.getElementById('sa'));
+  SA.t = parseFloat(cs.paddingTop) || 0; SA.r = parseFloat(cs.paddingRight) || 0; SA.b = parseFloat(cs.paddingBottom) || 0; SA.l = parseFloat(cs.paddingLeft) || 0;
 }
 window.addEventListener('resize', resize);
 function rr(x, y, w, h, r) { r = Math.min(r, h / 2, w / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath(); }
@@ -1028,15 +1041,33 @@ function drawLogo(x, y, size) {
   ctx.fillStyle = g; ctx.fillText('Aero', x, y);
 }
 function drawTitle() {
-  const u = UIS, size = Math.max(64, 160 * u), x = Math.max(24, W * 0.06), y = Math.max(size * 0.9 + 60, H_ * 0.3);
-  drawLogo(x, y, size);
-  ctx.font = fd(Math.max(18, 38 * u));
-  const sub = 'SURF', tw = ctx.measureText(sub).width, sw = tw + Math.max(36, 64 * u), sh = Math.max(30, 56 * u);
-  gem(x + size * 0.05, y + size * 0.2, sw, sh, pal.accent);
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; shadowText(sub, x + size * 0.05 + (sw - tw) / 2, y + size * 0.2 + sh * 0.53, '#fff', 3);
-  const fs = Math.max(12, 15 * u), px = x, py = y + size * 0.2 + sh + fs * 1.4;
-  const lines = [['Hold', 'Push down into the wave'], ['Let go going uphill', 'Launch'], ['In the air: hold right  /  →', 'Tip nose down'], ['In the air: hold left  /  ←', 'Tip nose up'], ['Board flat on the downslope', 'Smooth! (3 = Fever)'], ['Board at a bad angle', 'Wipeout']];
-  const pw = Math.min(W - px * 2, fs * 25), ph = fs * 1.8 * lines.length + fs * 1.2;
+  const compact = H_ < 520 && W > H_;
+  const u = compact ? Math.min(W / 1100, H_ / 330) : UIS;
+  const size = Math.max(compact ? 40 : 64, 160 * u), fs = Math.max(11, 15 * u);
+  const lines = compact
+    ? [['Hold', 'Push down / dive'], ['Let go uphill', 'Launch'], ['Land on a downslope', 'Perfect!'], ['Slam into a wave', 'Wipeout']]
+    : [['Hold anywhere', 'Push down into the wave'], ['Let go going uphill', 'Launch'], ['Hold in the air', 'Dive'], ['Come down on a downslope', 'Perfect! (3 = Fever)'], ['Slam into a wave face', 'Wipeout']];
+  const subF = fd(Math.max(compact ? 14 : 18, 38 * u));
+  ctx.font = subF;
+  const sub = 'SURF', tw = ctx.measureText(sub).width, sw = tw + Math.max(28, 64 * u), sh = Math.max(compact ? 24 : 30, 56 * u);
+  ctx.font = fu(fs * 1.1, 700);
+  const bt = 'Press to start', bw = ctx.measureText(bt).width + fs * 3, bh = fs * 2.8;
+  const pw = compact ? Math.min(fs * 22, W * 0.44) : Math.min(W - 48, fs * 25), ph = fs * 1.8 * lines.length + fs * 1.2;
+  const noteH = Math.max(14, 18 * u);
+  const y = size * 0.82, badgeY = y + size * 0.2;
+  const leftH = badgeY + sh + fs * 1.2 + bh;
+  const blockH = compact ? Math.max(leftH, ph + noteH * 2.4) : badgeY + sh + fs * 1.4 + ph + bh * 1.4 + noteH * 2.6;
+  const top = 60, avail = Math.max(80, H_ - top - 54), k = Math.min(1, avail / blockH);
+  ctx.save();
+  ctx.translate(Math.max(16, W * 0.05), top + Math.max(0, (avail - blockH * k) * (compact ? 0.5 : 0.25)));
+  ctx.scale(k, k);
+  drawLogo(0, y, size);
+  ctx.font = subF;
+  gem(size * 0.05, badgeY, sw, sh, pal.accent);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; shadowText(sub, size * 0.05 + (sw - tw) / 2, badgeY + sh * 0.53, '#fff', 3);
+  let px, py, by;
+  if (compact) { ctx.font = fd(size); px = ctx.measureText('Aero').width + size * 0.35; py = 0; by = badgeY + sh + fs * 1.2; }
+  else { px = 0; py = badgeY + sh + fs * 1.4; by = py + ph + bh * 0.4; }
   glass(px, py, pw, ph, fs * 0.9, tint(), true);
   lines.forEach(([a, b], i) => {
     const yy = py + fs * 1.5 + i * fs * 1.8;
@@ -1044,18 +1075,21 @@ function drawTitle() {
     ctx.textAlign = 'right'; ctx.fillStyle = NAVY; ctx.font = fu(fs, 700); ctx.fillText(b, px + pw - fs * 1.1, yy);
   });
   const bs = 1 + Math.sin(time * 4) * 0.03; ctx.font = fu(fs * 1.1, 700);
-  const bt = 'Press to start', bw = ctx.measureText(bt).width + fs * 3, bh = fs * 2.8;
-  ctx.save(); ctx.translate(px + bw / 2, py + ph + bh * 0.9); ctx.scale(bs, bs); gem(-bw / 2, -bh / 2, bw, bh, [60, 200, 90]);
+  ctx.save(); ctx.translate(bw / 2, by + bh / 2); ctx.scale(bs, bs); gem(-bw / 2, -bh / 2, bw, bh, [60, 200, 90]);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; shadowText(bt, 0, 1, '#fff', 3); ctx.restore();
   ctx.font = fu(Math.max(11, 13 * u), 600); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  shadowText(`Skin: ${SKINS[skinIdx].name}. Tap Skin or press K to change.`, px, py + ph + bh * 1.9, '#fff', 6);
-  shadowText(custom ? 'Custom surfer loaded. Press R to turn it.' : 'Got a Meshy model? Drop a .glb here or tap Load 3D model.', px, py + ph + bh * 1.9 + Math.max(16, 20 * u), '#fff', 6);
+  const nx = compact ? px : 0, ny = compact ? py + ph + noteH * 0.9 : by + bh + noteH;
+  shadowText(`Skin: ${SKINS[skinIdx].name}. Tap Skin or press K.`, nx, ny, '#fff', 6);
+  shadowText(custom ? 'Custom surfer loaded. Press R to turn it.' : 'Meshy model? Drop a .glb or tap Load 3D model.', nx, ny + noteH * 1.2, '#fff', 6);
+  ctx.restore();
 }
 function drawOver() {
   if (overT < 1.2) return;
   const a = clamp((overT - 1.2) / 0.4, 0, 1), fs = Math.max(13, 17 * UIS);
-  const pw = Math.min(W - 32, Math.max(320, fs * 24)), ph = fs * 20.5, px = (W - pw) / 2, py = Math.max(16, (H_ - ph) / 2);
+  const pw = Math.min(W - 32, Math.max(320, fs * 24)), ph = fs * 20.5, px = (W - pw) / 2, py = (H_ - ph) / 2;
+  const k = Math.min(1, (H_ - 16) / ph);
   ctx.save(); ctx.globalAlpha = a; ctx.translate(0, (1 - a) * 30);
+  ctx.translate(W / 2, H_ / 2); ctx.scale(k, k); ctx.translate(-W / 2, -H_ / 2);
   glass(px, py, pw, ph, fs * 1.2, tint(), true);
   gem(px + fs, py + fs, pw - fs * 2, fs * 3.2, [255, 110, 90]);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = fd(fs * 2); shadowText('Wipeout!', W / 2, py + fs * 2.65, '#fff', 3);
@@ -1079,26 +1113,14 @@ function drawUI() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.clearRect(0, 0, W, H_);
   if (fever) { const g = ctx.createLinearGradient(0, 0, W, 0); const hue = (time * 120) % 360; g.addColorStop(0, `hsla(${hue},100%,60%,0.22)`); g.addColorStop(0.15, 'rgba(255,255,255,0)'); g.addColorStop(0.85, 'rgba(255,255,255,0)'); g.addColorStop(1, `hsla(${(hue + 180) % 360},100%,60%,0.22)`); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H_); }
   if (flashA > 0.01) { ctx.fillStyle = `rgba(255,255,255,${flashA})`; ctx.fillRect(0, 0, W, H_); }
+  const fullW = W, fullH = H_;
+  W = fullW - SA.l - SA.r; H_ = fullH - SA.t - SA.b; ctx.translate(SA.l, SA.t);
   if (state === 'play' && playT < 8) {
     ctx.font = fu(Math.max(12, 15 * UIS), 700);
-    const t = playT < 4 ? 'Hold going downhill to push into the wave. Let go going uphill to launch.' : 'In the air, hold right to tip forward, left to tip back. Match the wave!';
+    const t = playT < 4 ? 'Hold going downhill to push into the wave. Let go going uphill to launch.' : 'Hold in the air to dive. Come down on the downslope!';
     const w = ctx.measureText(t).width + 32, h = Math.max(32, 40 * UIS), y = H_ - h - 64;
     glass(W / 2 - w / 2, y, w, h, h / 2, tint(), true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = NAVY; ctx.fillText(t, W / 2, y + h / 2 + 1);
-  }
-  if (state === 'play') {
-    // side hints: which half of the screen tips the board which way, lit while held
-    for (const sd of [-1, 1]) {
-      const on = input.held && input.side === sd && R.mode === 'air';
-      if (on) { const g = ctx.createLinearGradient(sd < 0 ? 0 : W, 0, sd < 0 ? W * 0.25 : W * 0.75, 0); g.addColorStop(0, rgba(pal.accent, 0.28)); g.addColorStop(1, rgba(pal.accent, 0)); ctx.fillStyle = g; ctx.fillRect(sd < 0 ? 0 : W * 0.75, 0, W * 0.25, H_); }
-      if (playT < 12 || on) {
-        ctx.font = fu(Math.max(11, 13 * UIS), 700);
-        const t = sd < 0 ? '◀  Tip back' : 'Tip forward  ▶', w = ctx.measureText(t).width + 28, h = 32, y = H_ - 104;
-        const x = sd < 0 ? 14 : W - 14 - w;
-        if (on) gem(x, y, w, h, pal.accent); else glass(x, y, w, h, h / 2, tint(), true);
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = on ? '#fff' : NAVY; ctx.fillText(t, x + w / 2, y + h / 2 + 1);
-      }
-    }
   }
   drawCallouts(); drawHUD();
   if (state === 'title') drawTitle();
@@ -1116,6 +1138,7 @@ function drawUI() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = fd(fs * 2.2); ctx.fillStyle = NAVY; ctx.fillText('Paused', W / 2, H_ / 2 - fs * 0.8);
     ctx.font = fu(fs, 600); ctx.fillText('Press to resume', W / 2, H_ / 2 + fs * 1.5);
   }
+  W = fullW; H_ = fullH;
 }
 
 /* ───────────────────────── input ───────────────────────── */
@@ -1133,6 +1156,15 @@ const fileIn = document.getElementById('file');
 for (const id of ['mute', 'model', 'skin']) document.getElementById(id).addEventListener('pointerdown', e => e.stopPropagation());
 document.getElementById('skin').addEventListener('click', e => { e.stopPropagation(); applySkin(skinIdx + 1, true); e.currentTarget.blur(); });
 applySkin(skinIdx, false);
+const fullBtn = document.getElementById('full');
+if (document.fullscreenEnabled && document.documentElement.requestFullscreen) fullBtn.hidden = false;
+fullBtn.addEventListener('pointerdown', e => e.stopPropagation());
+fullBtn.addEventListener('click', e => {
+  e.stopPropagation(); fullBtn.blur();
+  const req = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+  if (req && req.catch) req.catch(() => { fullBtn.hidden = true; });
+});
+document.addEventListener('fullscreenchange', () => { fullBtn.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; setTimeout(resize, 60); });
 document.getElementById('mute').addEventListener('click', e => { e.stopPropagation(); initAudio(); setMute(!AU.on); e.currentTarget.blur(); });
 document.getElementById('model').addEventListener('click', e => { e.stopPropagation(); fileIn.click(); e.currentTarget.blur(); });
 fileIn.addEventListener('change', () => { loadFile(fileIn.files[0]); fileIn.value = ''; });

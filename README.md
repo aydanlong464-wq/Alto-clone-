@@ -14,20 +14,23 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 
 | Input | Action |
 | --- | --- |
-| Hold anywhere (or Space) | Push down. On the water this builds speed going downhill; in the air you dive. |
+| Hold anywhere (or Space / arrows) | Push down. On the water this builds speed going downhill; in the air you dive. |
 | Let go | Going uphill, letting go launches you off the crest |
-| In the air: hold the **right** half (or →/D) | Dive and tip the board nose **down** |
-| In the air: hold the **left** half (or ←/A) | Dive and tip the board nose **up** |
 | K / **Skin** button | Change skin |
 | P / Esc | Pause |
 | M | Mute |
 | R | Turn a custom model 90° |
 
+It plays like Dune: one touch, and the surfer points along its flight path. Unlike Dune, the waves roll toward you, so the hills keep moving under you mid-flight.
+
 - **The waves are huge.** Swells grow as you go, and monster waves come in sets.
-- **Landings are judged on your board angle.** Tip the board to match the wave before you touch down. If you let go in the air, the board slowly levels to your flight path.
-- **Smooth!** Land with the board flat on a downslope to keep your speed and get a boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
-- **Splash!** A slightly-off landing costs speed. **Wipeout!** A clearly wrong angle, nose-first or tail-first, ends the run.
+- **Perfect!** Come down with your flight path matching a downslope to keep your speed and get a boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
+- **Splash!** Coming down at an awkward angle costs speed. **Wipeout!** Slamming steeply into a wave face ends the run. Dive (hold) in the air to drop onto the downslope before the next wave reaches you.
 - There is no timer. Surf as far as you can. The zones change every 600 m: Crystal Lagoon, Emerald Bay, Deep Blue, Lime Rain and Aqua Aurora.
+
+### Full screen on a phone
+
+Turn on GitHub Pages (below), open the game's link in Safari or Chrome, and use **Add to Home Screen**. Launched from the home screen it runs full screen in landscape, with no browser or app bars. In desktop browsers there is also a **Full screen** button.
 
 ## How it works
 

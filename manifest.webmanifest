@@ -1,0 +1,9 @@
+{
+  "name": "Aero Surf",
+  "short_name": "Aero Surf",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#3aa6ff",
+  "theme_color": "#3aa6ff"
+}
