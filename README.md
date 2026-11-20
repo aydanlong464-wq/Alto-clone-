@@ -29,6 +29,7 @@ It plays like Dune: one touch, and the surfer points along its flight path. Unli
 - **Perfect!** Come down with your path matching a downslope for a speed boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
 - **Up the face!** Meeting an oncoming wave face, you ride up it and can launch again. You keep most of your speed.
 - **Wipeout!** Slamming steeply into a wave face ends the run, and the margin for error tightens the further you get.
+- **Bubbles.** Strings of glossy soap bubbles ride along the waves' back slopes. Surf through them to pop them: each pop plays a rising note and gives a little speed. Get every bubble in a string for a **Bubble chain!** bonus and a bigger boost. Fly over them and you miss them.
 - **The whitewater.** A wall of breaking foam rolls in behind you and speeds up over time. Keep your speed up and it falls back; botch a few landings and it catches you. The WHITEWATER meter shows how close it is.
 - **Night mode** swaps in four night zones (Moonlit Lagoon, Bioluminescence, Aurora Night, Midnight Neon) with stars, a moon, aurora bands, glowing plankton and wake, glowing jellyfish and lit windows on the towers. Your choice is remembered.
 - There is no timer. Surf as far as you can. The zones change every 600 m: Crystal Lagoon, Emerald Bay, Deep Blue, Lime Rain and Aqua Aurora.

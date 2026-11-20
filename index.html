@@ -806,9 +806,23 @@ if (location.protocol.startsWith('http')) fetch('models/surfer.glb', { method: '
 const loadFile = f => { if (f) loadURL(URL.createObjectURL(f), f.name); };
 
 /* collectibles + spray */
-const orbMat = shiny(0xb8f4ff, { transparent: true, opacity: 0.7, roughness: 0.02, iridescence: 1, envMapIntensity: 2, emissive: 0x3a7aa0, emissiveIntensity: 0.2 });
-const orbGeo = new THREE.SphereGeometry(0.5, 28, 18);
-let orbs = [];
+// Aero bubbles: strings of glossy soap bubbles riding the waves' downslopes, collected by surfing through them
+const orbMat = new THREE.ShaderMaterial({ uniforms: U(), transparent: true, depthWrite: false, fog: false,
+  vertexShader: `varying vec3 vN; varying vec3 vV; void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = -mv.xyz; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `${PAL_GLSL} uniform float uTime, uNight; varying vec3 vN; varying vec3 vV;
+    void main(){
+      vec3 n = normalize(vN), v = normalize(vV);
+      float fres = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.2);
+      vec3 film = clamp(abs(mod(fres * 5.0 + n.y * 1.5 + uTime * 0.4 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+      vec3 col = mix(u_bubble, film, 0.55) * (1.0 + uNight * 0.4);
+      float a = 0.12 + fres * 0.88;
+      float hl = smoothstep(0.9, 0.975, dot(n, normalize(vec3(-0.45, 0.6, 0.66))));
+      float hl2 = smoothstep(0.95, 0.99, dot(n, normalize(vec3(0.5, -0.45, 0.74)))) * 0.6;
+      col = mix(col, vec3(1.0), max(hl, hl2)); a = max(a, max(hl, hl2));
+      gl_FragColor = vec4(col, a);
+    }` });
+const orbGeo = new THREE.SphereGeometry(0.7, 30, 20), glintGeo = new THREE.SphereGeometry(0.13, 10, 8), glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+let orbs = [], chains = {}, chainSeq = 0;
 const PMAX = 2400, pPos = new Float32Array(PMAX * 3).fill(-9999);
 const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
 const pMat = new THREE.PointsMaterial({ size: 0.55, map: dotTex, color: 0xdff8ff, transparent: true, depthWrite: false, sizeAttenuation: true, toneMapped: false });
@@ -899,7 +913,7 @@ const difficulty = () => clamp(dist / 4000, 0, 1);
 const score = () => Math.floor(trickScore + dist);
 
 function resetWorld(isSafe) {
-  safe = isSafe; for (const o of orbs) scene.remove(o.mesh); orbs = []; bumps = []; callouts = [];
+  safe = isSafe; for (const o of orbs) scene.remove(o.mesh); orbs = []; chains = {}; bumps = []; callouts = [];
   simT = 0; dist = 0; trickScore = 0; smoothRun = 0; smoothTotal = 0; bestAir = 0; orbStreak = 0; fever = 0; feverT = 0; newBest = false; timeLeft = TIME0;
   lastBump = null; rogue = 0; R.spin = 0; R.x = 0; R.speed = 14; chaseX = -80;
   spawnAhead();
@@ -925,13 +939,21 @@ function spawnAhead() {
     bumps.push(b); lastBump = b;
     if (!safe && c > 60) {
       const v = Math.max(14, R.speed), xa = (c + C_SWELL * R.x / v) / (1 + C_SWELL / v);
-      if (chance(0.55)) for (let k = 0; k < 7; k++) { const t = k / 6; addOrb(xa + 3 + t * 26, a + 3 + Math.sin(t * Math.PI) * (5 + d * 6)); }
-      else if (chance(0.35)) for (let k = 0; k < 5; k++) addOrb(xa + w * 1.6 + k * 1.6, -2.2 - Math.sin(k / 4 * Math.PI) * 1.5);
+      if (chance(0.7)) {
+        // a string of bubbles down this wave's back, riding along with it
+        const id = ++chainSeq, n = 7 + Math.floor(rand(0, 6)), span = b.wr * 1.6;
+        chains[id] = { n, got: 0, done: false };
+        for (let k = 0; k < n; k++) addOrb(c + b.wr * 0.12 + (k / (n - 1)) * span, id, k);
+      }
     }
   }
   bumps = bumps.filter(b => b.x0 - C_SWELL * simT > R.x - 160);
 }
-function addOrb(x, y) { const mesh = new THREE.Mesh(orbGeo, orbMat); mesh.position.set(x, y, 0.5); scene.add(mesh); orbs.push({ x, y, mesh, t: Math.random() * 6 }); }
+function addOrb(x, chain, k) {
+  const mesh = new THREE.Mesh(orbGeo, orbMat), glint = new THREE.Mesh(glintGeo, glintMat);
+  glint.position.set(-0.26, 0.33, 0.53); mesh.add(glint); mesh.renderOrder = 6;
+  scene.add(mesh); orbs.push({ x0: x + C_SWELL * simT, x, y: 0, chain, k, mesh, t: Math.random() * 6 });
+}
 function callout(text, sub, life = 1.1) { callouts.unshift({ text, sub, age: 0, life }); if (callouts.length > 4) callouts.length = 4; }
 
 function land(sy) {
@@ -1051,10 +1073,24 @@ function step(dt) {
   }
   if (state === 'play') {
     for (const o of orbs) {
-      if (o.taken) continue;
-      if (Math.abs(o.x - R.x) < 1.4 && Math.abs(o.y - (R.y + 1.3)) < 1.8) {
-        o.taken = true; orbStreak++; trickScore += 20 * (fever ? 2 : 1); sfx.orb(orbStreak);
-        for (let i = 0; i < 8; i++) emit(o.x, o.y, rand(-3, 3), rand(-2, 4), 0.4);
+      o.x = o.x0 - C_SWELL * simT; o.y = H(o.x, simT) + 0.95;
+      const ch = chains[o.chain];
+      if (!o.taken && Math.abs(o.x - R.x) < 1.5 && Math.abs(o.y - (R.y + 1.0)) < 1.6) {
+        o.taken = true; ch.got++;
+        trickScore += 15 * (fever ? 2 : 1); sfx.orb(ch.got - 1);
+        if (R.mode === 'water') R.speed = Math.min(R.speed + 0.35, MAXS + 6); else R.vx += 0.3;
+        for (let i = 0; i < 10; i++) emit(o.x + rand(-0.3, 0.3), o.y + rand(-0.3, 0.3), rand(-3, 3), rand(-1, 4), 0.45, rand(-1.5, 1.5));
+        for (let i = 0; i < 3; i++) emitMist(o.x, o.y, rand(-1.5, 1.5), rand(0.5, 1.5), 0.6);
+      }
+      // when the last bubble of a string goes by, a clean sweep pays out
+      if (ch && !ch.done && o.k === ch.n - 1 && o.x < R.x - 2) {
+        ch.done = true;
+        if (ch.got === ch.n) {
+          const pts = 40 * ch.n * (fever ? 2 : 1);
+          trickScore += pts; callout('Bubble chain!', `${ch.n} in a row  +${pts}`);
+          if (R.mode === 'water') R.speed = Math.min(R.speed + 3, MAXS + 8); else R.vx += 3;
+          [0, 4, 7, 12].forEach((st, i) => tone(noteF(st + 12), 0.25, 'sine', 0.05, 0, i * 0.05));
+        }
       }
     }
   }
@@ -1077,7 +1113,7 @@ function updatePalette() {
   }
   lastZone = zi;
   srgb(scene.fog.color, pal.skyHor); srgb(islandMat.color, pal.isl); srgb(leafMat.color, mixC(pal.isl, [0, 40, 0], 0.2)); srgb(towerMat.color, pal.tower);
-  srgb(rimL.color, pal.accent); srgb(stripeMat.color, pal.accent); srgb(orbMat.color, pal.bubble); srgb(bubMat.color, pal.bubble);
+  srgb(rimL.color, pal.accent); srgb(stripeMat.color, pal.accent); srgb(bubMat.color, pal.bubble);
   srgb(hemi.groundColor, pal.wMid); srgb(hemi.color, pal.skyHor);
   const key2 = zi + ':' + Math.round(t * 4) + ':' + Math.round(nb * 4);
   if (key2 !== pal.key) { pal.key = key2; regenEnv(); }
@@ -1192,7 +1228,12 @@ function update(dt) {
     foamWall.material.emissive.setRGB(...c3(pal.accent).toArray()).lerp(new THREE.Color(0xffffff), 1 - SHARED_U.uNight.value * 0.6);
     if (state === 'play' && chaseX > cam.x - xFar) for (let k = 0; k < 3; k++) emitMist(chaseX + rand(-2, 2), H(chaseX, simT) + rand(0, 9), rand(2, 8), rand(1, 4), rand(0.6, 1.2));
   }
-  for (const o of orbs) { o.t += dt; o.mesh.visible = !o.taken; o.mesh.position.y = o.y + Math.sin(o.t * 2.5) * 0.15; }
+  for (const o of orbs) {
+    o.t += dt; o.mesh.visible = !o.taken;
+    o.x = o.x0 - C_SWELL * simT; o.y = H(o.x, simT) + 0.95;
+    const wob = 1 + Math.sin(o.t * 4) * 0.05;
+    o.mesh.position.set(o.x, o.y + Math.sin(o.t * 2.5) * 0.12, 0.4); o.mesh.scale.set(wob, 2 - wob, wob);
+  }
   orbs = orbs.filter(o => { if (o.x < cam.x - halfW * 2) { scene.remove(o.mesh); return false; } return true; });
   for (let i = 0; i < PMAX; i++) {
     const p = parts[i];
