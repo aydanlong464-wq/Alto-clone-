@@ -53,6 +53,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <div id="sa" aria-hidden="true"></div>
 <div id="controls">
   <button id="full" class="pill" type="button" hidden>Full screen</button>
+  <button id="night" class="pill" type="button" aria-pressed="false">Night mode</button>
   <button id="skin" class="pill" type="button">Skin</button>
   <button id="model" class="pill" type="button">Load 3D model</button>
   <button id="mute" class="pill" type="button" aria-pressed="false">Sound on</button>
@@ -100,6 +101,15 @@ const PAL_DEF = [
 ];
 const CKEYS = ['skyTop', 'skyMid', 'skyHor', 'sun', 'beam', 'wTop', 'wMid', 'wDeep', 'rim', 'isl', 'islD', 'tower', 'bed', 'accent', 'bubble'];
 const PALS = PAL_DEF.map(p => { const o = { name: p.name, root: p.root }; CKEYS.forEach(k => o[k] = hex(p[k])); return o; });
+const PAL_NIGHT_DEF = [
+  { name: 'Moonlit Lagoon', root: 98.0, skyTop: '#020824', skyMid: '#0a2a6a', skyHor: '#1c4a88', sun: '#eef6ff', beam: '#a8c8ff', wTop: '#0a92b0', wMid: '#03305e', wDeep: '#010a24', rim: '#c8f4ff', isl: '#1a6a5a', islD: '#02202a', tower: '#1a2a5a', bed: '#0a6a5a', accent: '#3aa0ff', bubble: '#a0e8ff' },
+  { name: 'Bioluminescence', root: 110.0, skyTop: '#01040f', skyMid: '#061a3a', skyHor: '#0a4a6a', sun: '#d8fff8', beam: '#80ffe0', wTop: '#00c8a0', wMid: '#002a48', wDeep: '#00050f', rim: '#a0fff0', isl: '#0a4a3a', islD: '#001a14', tower: '#0a3a4a', bed: '#00a080', accent: '#00f0b0', bubble: '#80fff0' },
+  { name: 'Aurora Night', root: 123.5, skyTop: '#050018', skyMid: '#1a0a5a', skyHor: '#3ad0a0', sun: '#f0e8ff', beam: '#c0a0ff', wTop: '#22c890', wMid: '#141f5e', wDeep: '#030018', rim: '#e0d8ff', isl: '#2a3a8a', islD: '#08082a', tower: '#2a1a6a', bed: '#3a2a9a', accent: '#a070ff', bubble: '#d0c0ff' },
+  { name: 'Midnight Neon', root: 87.3, skyTop: '#0a0014', skyMid: '#3a0a5a', skyHor: '#ff3aa0', sun: '#fff0f8', beam: '#ff80d0', wTop: '#c828b0', wMid: '#200852', wDeep: '#05000f', rim: '#ffd0f0', isl: '#5a1a8a', islD: '#12002a', tower: '#3a0a6a', bed: '#6a1a8a', accent: '#ff3aa8', bubble: '#ffb0e8' },
+];
+const PALS_N = PAL_NIGHT_DEF.map(p => { const o = { name: p.name, root: p.root }; CKEYS.forEach(k => o[k] = hex(p[k])); return o; });
+let nightMode = false, nightBlend = 0;
+try { nightMode = localStorage.getItem('aero-surf-night') === '1'; nightBlend = nightMode ? 1 : 0; } catch (e) { }
 const pal = { name: PALS[0].name, root: PALS[0].root, zone: 0, key: '' };
 CKEYS.forEach(k => pal[k] = PALS[0][k].slice());
 
@@ -130,7 +140,7 @@ const SHARED_U = {
   uWaves: { value: WAVES.map(w => new THREE.Vector4(w.kx, w.kz, w.a, w.w)) },
   uBumps: { value: Array.from({ length: MAXB }, () => new THREE.Vector4(0, 0, 1, 1)) },
   uTrail: { value: Array.from({ length: MAXT }, () => new THREE.Vector4(0, 0, 1, 0)) },
-  uCamP: { value: v3() }, uSun: { value: sunDir.clone() },
+  uCamP: { value: v3() }, uSun: { value: sunDir.clone() }, uNight: { value: 0 },
 };
 const PALU = CKEYS.reduce((o, k) => (o['u_' + k] = { value: v3() }, o), {});
 const PAL_GLSL = CKEYS.map(k => `uniform vec3 u_${k};`).join('\n');
@@ -167,29 +177,31 @@ const skyMat = new THREE.ShaderMaterial({
   uniforms: U(), side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: 'varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }',
   fragmentShader: `${PAL_GLSL}
-uniform float uTime, uDusk, uFever; uniform vec3 uSun; varying vec3 vDir;
+uniform float uTime, uDusk, uFever, uNight; uniform vec3 uSun; varying vec3 vDir;
 void main(){
   vec3 d = normalize(vDir); float y = d.y;
   vec3 col = mix(u_skyHor, u_skyMid, smoothstep(0.0, 0.22, y));
   col = mix(col, u_skyTop, smoothstep(0.18, 0.8, y));
   if (y < 0.0) col = u_skyHor;
   float s = max(dot(d, uSun), 0.0);
-  col = mix(col, u_sun, smoothstep(0.99855, 0.9989, s));
-  col += u_sun * (pow(s, 70.0) * 0.5 + pow(s, 6.0) * 0.14);
+  col = mix(col, u_sun, smoothstep(mix(0.99855, 0.99775, uNight), mix(0.9989, 0.9981, uNight), s));
+  col += u_sun * (pow(s, 70.0) * 0.5 + pow(s, 6.0) * 0.14) * (1.0 - 0.75 * uNight) + u_sun * pow(s, 400.0) * 0.4 * uNight;
   vec3 t1 = normalize(cross(uSun, vec3(0.0, 1.0, 0.0))), t2 = cross(t1, uSun);
   float a = atan(dot(d, t2), dot(d, t1));
   float sh = step(0.86 - 0.08 * uFever, sin(a * 7.0 + uTime * (0.04 + uFever * 0.6))) * smoothstep(0.25, 0.97, s) * step(-0.01, y);
-  col = mix(col, u_beam, sh * 0.24);
+  col = mix(col, u_beam, sh * 0.24 * (1.0 - 0.7 * uNight));
   float ra = acos(clamp(dot(d, normalize(vec3(0.42, -0.02, -1.0))), -1.0, 1.0));
   float rt = (ra - 0.28) / 0.045;
   if (rt > 0.0 && rt < 1.0 && y > 0.0) {
     vec3 rc = clamp(abs(mod((1.0 - rt) * 4.8 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-    col = mix(col, rc, 0.32 * sin(rt * 3.14159) * smoothstep(0.0, 0.06, y));
+    col = mix(col, rc, 0.32 * sin(rt * 3.14159) * smoothstep(0.0, 0.06, y) * (1.0 - uNight));
   }
   col = mix(col, col * vec3(0.25, 0.28, 0.5), uDusk);
   vec3 q = floor(d * 260.0);
   float h = fract(sin(dot(q, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-  col += step(0.9982, h) * uDusk * clamp(y * 3.0, 0.0, 1.0);
+  col += step(mix(0.9982, 0.9962, uNight), h) * max(uDusk, uNight) * 1.3 * clamp(y * 3.0, 0.0, 1.0) * (0.65 + 0.35 * sin(uTime * 3.0 + h * 80.0));
+  float band = exp(-pow((y - 0.3 - 0.06 * sin(d.x * 5.0 + uTime * 0.25)) * 8.0, 2.0)) + 0.6 * exp(-pow((y - 0.45 - 0.05 * sin(d.x * 7.0 - uTime * 0.2)) * 10.0, 2.0));
+  col += u_beam * band * 0.32 * uNight * (0.55 + 0.45 * sin(d.x * 12.0 + uTime * 0.7));
   gl_FragColor = vec4(col, 1.0);
 }` });
 const sky = new THREE.Mesh(new THREE.SphereGeometry(1600, 48, 24), skyMat);
@@ -215,7 +227,7 @@ void main(){
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`,
   fragmentShader: `${PAL_GLSL}
-uniform float uTime, uDusk; uniform vec3 uSun; uniform vec4 uTrail[${MAXT}];
+uniform float uTime, uDusk, uNight; uniform vec3 uSun; uniform vec4 uTrail[${MAXT}];
 varying vec3 vW; varying vec3 vN; varying float vSw;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -241,6 +253,8 @@ void main(){
   float nz = noise(q * 1.7 + t * 0.6) * 0.6 + noise(q * 4.3 - t) * 0.4;
   float foam = clamp((steep + crest) * smoothstep(0.35, 0.75, nz) * 1.4 + wake * smoothstep(0.2, 0.6, nz + 0.2), 0.0, 1.0);
   col = mix(col, u_rim, foam * 0.92);
+  float spk = step(0.985, hash(floor(q * 2.5) + floor(t * 3.0)));
+  col += u_accent * (foam * 0.9 + spk * 0.8) * uNight;
   col = mix(col, u_skyHor, smoothstep(180.0, 1100.0, length(cameraPosition - vW)));
   col = mix(col, col * vec3(0.28, 0.3, 0.55), uDusk);
   gl_FragColor = vec4(col, 1.0);
@@ -284,7 +298,7 @@ const glassU = ribU(CUT), backU = ribU(-30), frontBedU = ribU(CUT + 0.03);
 const glassMesh = new THREE.Mesh(ribbon(480), new THREE.ShaderMaterial({ uniforms: glassU, transparent: true, depthWrite: false, fog: false,
   vertexShader: RIB_VS('H3(vec2(x, uZ))', '-70.0'),
   fragmentShader: `${PAL_GLSL}
-uniform float uTime, uDusk; varying vec2 vW; varying float vTop;
+uniform float uTime, uDusk, uNight; varying vec2 vW; varying float vTop;
 void main(){
   float d = vTop - vW.y; vec2 p = vW;
   vec3 col = mix(u_wTop, u_wMid, smoothstep(0.0, 6.0, d));
@@ -302,6 +316,8 @@ void main(){
   float bh = fract(sin(dot(bc, vec2(12.9898, 78.233))) * 43758.5453);
   float bk = smoothstep(0.34, 0.12, length(bf - (vec2(fract(bh * 13.1), fract(bh * 7.3)) - 0.5) * 0.4)) * step(0.6, bh) * smoothstep(2.0, 7.0, d);
   col += mix(u_bed, vec3(1.0, 0.95, 0.45), 0.55) * bk * 0.4;
+  float pl = step(0.992, fract(sin(dot(floor(p * 3.0), vec2(41.3, 289.1))) * 43758.5)) * (0.5 + 0.5 * sin(uTime * 3.0 + p.x * 7.0));
+  col += u_bubble * pl * uNight * 0.9; a = max(a, pl * uNight * 0.6);
   float band = smoothstep(1.1, 0.08, d);
   col = mix(col, mix(u_wTop, u_rim, 0.5), band * 0.55); a = max(a, band * 0.6);
   float rim = smoothstep(0.1, 0.035, d);
@@ -397,7 +413,8 @@ function makeIsland() {
 }
 const islands = [];
 for (let i = 0; i < 7; i++) { const m = makeIsland(); m.userData = { x: i * 170 + rand(-40, 40), z: rand(-420, -260) }; scene.add(m); islands.push(m); }
-const towerMat = new THREE.MeshStandardMaterial({ color: 0x7fb8e8, roughness: 0.35, metalness: 0.15, flatShading: true });
+const winTex = tex(64, 128, (g, w, h) => { g.fillStyle = '#000'; g.fillRect(0, 0, w, h); for (let y = 4; y < h - 4; y += 8) for (let x = 4; x < w - 4; x += 8) if (Math.random() < 0.45) { g.fillStyle = Math.random() < 0.7 ? '#ffe9a0' : '#9ff0ff'; g.fillRect(x, y, 4, 5); } });
+const towerMat = new THREE.MeshStandardMaterial({ color: 0x7fb8e8, roughness: 0.35, metalness: 0.15, flatShading: true, emissive: 0xffffff, emissiveMap: winTex, emissiveIntensity: 0 });
 const towers = [];
 for (let i = 0; i < 14; i++) {
   const w = rand(10, 26), h = rand(18, 75);
@@ -457,6 +474,10 @@ function makeDolphin() {
 }
 const dolphins = [0, 1, 2].map(() => { const d = makeDolphin(); scene.add(d); return d; });
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = v3();
+const FOAM = 34;
+const foamWall = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.4, clearcoat: 0.6, transparent: true, opacity: 0.88, emissive: 0xffffff, emissiveIntensity: 0.18 }), FOAM);
+foamWall.frustumCulled = false; scene.add(foamWall);
+const foamData = Array.from({ length: FOAM }, (_, i) => ({ t: i / FOAM, ph: rand(0, TAU), dx: rand(-4, 1.5), z: rand(-6, CUT), r: rand(1.2, 3.2) }));
 
 /* ───────────────────────── reef: fish of all kinds, a school, pufferfish, jellyfish, turtles, starfish, coral, crabs ───────────────────────── */
 const reef = [];
@@ -640,6 +661,7 @@ function updateReef(dt, xFar) {
       u.tail.rotation.y = Math.sin(u.ph * 8) * 0.5;
     } else if (u.kind === 'jelly') {
       const pulse = Math.sin(u.ph * 2.2);
+      u.bell.material.emissiveIntensity = 0.55 + SHARED_U.uNight.value * 1.4;
       u.bell.scale.set(1 + pulse * 0.12, 0.75 - pulse * 0.1, 1 + pulse * 0.12);
       o.scale.setScalar(u.s); o.rotation.y = u.ph * 0.2;
       u.y += (Math.max(0, pulse) * 0.9 - 0.25) * dt;
@@ -866,7 +888,7 @@ const R = { x: 0, y: 0, vx: 0, vy: 0, speed: 0, ang: 0, mode: 'water', airT: 0, 
 let state = 'title', paused = false, simT = 0, time = 0, acc = 0;
 let dist = 0, trickScore = 0, best = 0, smoothRun = 0, smoothTotal = 0, bestAir = 0, orbStreak = 0;
 let timeLeft = TIME0, fever = 0, feverT = 0, overT = 0, playT = 0, flashA = 0, newBest = false, safe = true;
-let lastBump = null, trailT = 0, rogue = 0, endReason = '';
+let lastBump = null, trailT = 0, rogue = 0, endReason = '', chaseX = -80;
 const input = { held: false, side: 0 };
 const ROT_B = 3.4;
 const cam = { x: 0, y: 0, d: 40 };
@@ -879,7 +901,7 @@ const score = () => Math.floor(trickScore + dist);
 function resetWorld(isSafe) {
   safe = isSafe; for (const o of orbs) scene.remove(o.mesh); orbs = []; bumps = []; callouts = [];
   simT = 0; dist = 0; trickScore = 0; smoothRun = 0; smoothTotal = 0; bestAir = 0; orbStreak = 0; fever = 0; feverT = 0; newBest = false; timeLeft = TIME0;
-  lastBump = null; rogue = 0; R.spin = 0; R.x = 0; R.speed = 14;
+  lastBump = null; rogue = 0; R.spin = 0; R.x = 0; R.speed = 14; chaseX = -80;
   spawnAhead();
   Object.assign(R, { x: 0, y: H(0, 0), vx: 14, vy: 0, speed: 14, ang: 0, angVel: 0, mode: 'water', airT: 0, sq: 0 });
   riderRoot.rotation.set(0, 0, 0);
@@ -940,13 +962,13 @@ function land(sy) {
   } else if (diff < 0.75 || th < -0.03) {
     R.mode = 'water'; R.vy = 0; R.speed = clamp(keep, MINS, MAXS + 4); R.ang = th; R.sq = 0.35;
     if (air > 0.35) { splash(R.x, sy, 24, 0.8); smoothRun = 0; }
-  } else if (demo || diff < 1.45 || impact < 26) {
+  } else if (demo || diff < lerp(1.28, 0.88, difficulty()) || impact < lerp(17, 10.5, difficulty())) {
     smoothRun = 0;
-    R.mode = 'water'; R.vy = 0; R.speed = clamp(keep * 0.85, MINS, MAXS); R.ang = th; R.sq = 0.5;
+    R.mode = 'water'; R.vy = 0; R.speed = clamp(keep * 0.62, MINS, MAXS); R.ang = th; R.sq = 0.5;
     sfx.splash(); splash(R.x, sy, 40, 1); if (!demo && air > 0.35) callout(th > 0.15 ? 'Up the face!' : 'Splash!', th > 0.15 ? 'Ride it up and fly again' : 'Dive onto the downslope');
   } else {
     smoothRun = 0;
-    wipeout('You nose-dived into the wave.'); return;
+    wipeout(th > 0.15 ? 'You slammed into the wave face.' : 'You nose-dived into the wave.'); return;
   }
   R.airT = 0;
 }
@@ -1022,6 +1044,12 @@ function step(dt) {
     }
   }
   if (state === 'play') {
+    // a wall of whitewater rolls in behind you and speeds up; keep your speed or it catches you
+    const dd = difficulty(), cap = lerp(80, 45, dd);
+    chaseX = Math.max(chaseX + (playT > 4 ? 16 + 14 * dd : 6) * dt, R.x - cap);
+    if (chaseX >= R.x - 0.5) { wipeout('The whitewater caught you.'); return; }
+  }
+  if (state === 'play') {
     for (const o of orbs) {
       if (o.taken) continue;
       if (Math.abs(o.x - R.x) < 1.4 && Math.abs(o.y - (R.y + 1.3)) < 1.8) {
@@ -1038,9 +1066,12 @@ let lastZone = 0;
 function updatePalette() {
   const zf = (state === 'title' ? time * 20 : dist) / ZONE, zi = Math.floor(zf), f = zf - zi;
   const t = smooth(clamp((f - 0.85) / 0.15, 0, 1));
-  const A = PALS[zi % PALS.length], Bp = PALS[(zi + 1) % PALS.length];
-  CKEYS.forEach(k => { pal[k] = mixC(A[k], Bp[k], t); PALU['u_' + k].value.copy(c3(pal[k])); });
-  pal.root = lerp(A.root, Bp.root, t); pal.name = A.name; pal.zone = zi;
+  const nb = smooth(nightBlend);
+  const dA = PALS[zi % PALS.length], dB = PALS[(zi + 1) % PALS.length], nA = PALS_N[zi % PALS_N.length], nB = PALS_N[(zi + 1) % PALS_N.length];
+  const A = nb > 0.5 ? nA : dA;
+  CKEYS.forEach(k => { pal[k] = mixC(mixC(dA[k], dB[k], t), mixC(nA[k], nB[k], t), nb); PALU['u_' + k].value.copy(c3(pal[k])); });
+  pal.root = lerp(lerp(dA.root, dB.root, t), lerp(nA.root, nB.root, t), nb); pal.name = A.name; pal.zone = zi;
+  SHARED_U.uNight.value = nb; towerMat.emissiveIntensity = nb * 1.3; renderer.toneMappingExposure = lerp(1.1, 0.8, nb);
   if (state === 'play' && zi !== lastZone && zi > 0) {
     callout(`Zone ${zi + 1}: ${A.name}`, `${fmt(zi * ZONE)} m`, 2.2); sfx.zone();
   }
@@ -1048,7 +1079,7 @@ function updatePalette() {
   srgb(scene.fog.color, pal.skyHor); srgb(islandMat.color, pal.isl); srgb(leafMat.color, mixC(pal.isl, [0, 40, 0], 0.2)); srgb(towerMat.color, pal.tower);
   srgb(rimL.color, pal.accent); srgb(stripeMat.color, pal.accent); srgb(orbMat.color, pal.bubble); srgb(bubMat.color, pal.bubble);
   srgb(hemi.groundColor, pal.wMid); srgb(hemi.color, pal.skyHor);
-  const key2 = zi + ':' + Math.round(t * 4);
+  const key2 = zi + ':' + Math.round(t * 4) + ':' + Math.round(nb * 4);
   if (key2 !== pal.key) { pal.key = key2; regenEnv(); }
 }
 
@@ -1100,14 +1131,15 @@ function update(dt) {
   SHARED_U.uTime.value = simT;
   SHARED_U.uDusk.value = 0;
   SHARED_U.uFever.value += ((fever ? 1 : 0) - SHARED_U.uFever.value) * Math.min(1, dt * 3);
-  key.intensity = lerp(2.6, 1.1, SHARED_U.uDusk.value); hemi.intensity = lerp(1.0, 0.45, SHARED_U.uDusk.value);
+  nightBlend += ((nightMode ? 1 : 0) - nightBlend) * Math.min(1, dt * 1.5);
+  key.intensity = lerp(2.6, 0.95, Math.max(SHARED_U.uDusk.value, SHARED_U.uNight.value)); hemi.intensity = lerp(1.0, 0.5, SHARED_U.uNight.value);
 
   // scenery motion
   for (const c of clouds) {
     const u = c.userData, span = 2000;
     let x = u.dx + camera.position.x * u.par;
     x = camera.position.x + ((((x - camera.position.x) + span / 2) % span + span) % span) - span / 2;
-    c.position.set(x, u.y, u.z); c.material.opacity = 1 - SHARED_U.uDusk.value * 0.7;
+    c.position.set(x, u.y, u.z); c.material.opacity = 1 - SHARED_U.uNight.value * 0.4; c.material.color.setRGB(lerp(1, 0.2, SHARED_U.uNight.value), lerp(1, 0.26, SHARED_U.uNight.value), lerp(1, 0.48, SHARED_U.uNight.value));
   }
   for (const m of islands) { const u = m.userData; if (u.x < cam.x - 420) { u.x += 7 * 170; u.z = rand(-420, -260); } m.position.set(u.x, 0, u.z); }
   for (const m of towers) { const u = m.userData; if (u.x < cam.x - 700) { u.x += 14 * 90; u.z = rand(-720, -480); } m.position.set(u.x, u.h / 2 - 4, u.z); }
@@ -1148,6 +1180,18 @@ function update(dt) {
     dl.rotation.y = u.sp >= 0 ? Math.PI : 0;
   }
   updateReef(dt, xFar);
+  foamWall.visible = state !== 'title';
+  if (foamWall.visible) {
+    for (let i = 0; i < FOAM; i++) {
+      const f = foamData[i]; f.ph += dt * 3;
+      const x = chaseX + f.dx - f.t * 3 + Math.sin(f.ph) * 0.6, base = H(x, simT);
+      const yy = base + Math.sin(f.t * Math.PI) * 9 * (0.7 + 0.3 * Math.sin(f.ph * 0.7)) - 1;
+      tmpS.setScalar(f.r * (0.85 + 0.15 * Math.sin(f.ph * 1.3))); tmpM.compose(v3(x, yy, f.z), tmpQ, tmpS); foamWall.setMatrixAt(i, tmpM);
+    }
+    foamWall.instanceMatrix.needsUpdate = true;
+    foamWall.material.emissive.setRGB(...c3(pal.accent).toArray()).lerp(new THREE.Color(0xffffff), 1 - SHARED_U.uNight.value * 0.6);
+    if (state === 'play' && chaseX > cam.x - xFar) for (let k = 0; k < 3; k++) emitMist(chaseX + rand(-2, 2), H(chaseX, simT) + rand(0, 9), rand(2, 8), rand(1, 4), rand(0.6, 1.2));
+  }
   for (const o of orbs) { o.t += dt; o.mesh.visible = !o.taken; o.mesh.position.y = o.y + Math.sin(o.t * 2.5) * 0.15; }
   orbs = orbs.filter(o => { if (o.x < cam.x - halfW * 2) { scene.remove(o.mesh); return false; } return true; });
   for (let i = 0; i < PMAX; i++) {
@@ -1207,7 +1251,7 @@ const FD = 'Nunito, "Segoe UI", "Arial Rounded MT Bold", sans-serif', FU = '"Ope
 const fd = (px, w = 900) => `${w} ${Math.round(px)}px ${FD}`, fu = (px, w = 700) => `${w} ${Math.round(px)}px ${FU}`;
 const NAVY = '#0d3b66', fmt = n => n.toLocaleString('en-US');
 function shadowText(text, x, y, fill, blur = 6) { ctx.save(); ctx.shadowColor = 'rgba(0,30,80,0.5)'; ctx.shadowBlur = blur; ctx.shadowOffsetY = 2; ctx.fillStyle = fill; ctx.fillText(text, x, y); ctx.restore(); }
-const tint = () => mixC(pal.skyMid, pal.skyHor, 0.5);
+const tint = () => mixC(mixC(pal.skyMid, pal.skyHor, 0.5), [160, 205, 255], SHARED_U.uNight.value * 0.7);
 
 function drawCallouts() {
   const big = clamp(H_ * 0.055, 22, 48);
@@ -1244,6 +1288,13 @@ function drawHUD() {
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 8, 0, TAU); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
   }
   if (fever) { ctx.font = fd(fs * 0.8); ctx.textAlign = 'left'; shadowText('FEVER', m + 82, m + h + 17, rgba(pal.accent), 4); }
+  if (state === 'play' || state === 'over') {
+    const cap = lerp(80, 45, difficulty()), close = clamp(1 - (R.x - chaseX) / cap, 0, 1);
+    const bx = m, by = m + h + 32, bw = Math.max(130, fs * 7.2), bh2 = 8;
+    ctx.font = fu(fs * 0.5, 700); ctx.textAlign = 'left'; shadowText('WHITEWATER', bx + 2, by + 1, close > 0.6 && Math.floor(time * 6) % 2 ? '#ff8080' : '#fff', 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; rr(bx, by + 8, bw, bh2, 4); ctx.fill();
+    ctx.fillStyle = close > 0.6 ? '#ff5a5a' : rgba(pal.accent); rr(bx, by + 8, Math.max(bh2, bw * close), bh2, 4); ctx.fill();
+  }
   const sW = Math.max(150, fs * 8);
   glass(W - m - sW, m, sW, h, h / 2, tn);
   ctx.textAlign = 'right'; ctx.font = fu(fs * 0.55, 600); ctx.fillStyle = 'rgba(13,59,102,0.7)'; ctx.fillText('SCORE', W - m - h * 0.45, m + h * 0.3);
@@ -1267,8 +1318,8 @@ function drawTitle() {
   const u = compact ? Math.min(W / 1100, H_ / 330) : UIS;
   const size = Math.max(compact ? 40 : 64, 160 * u), fs = Math.max(11, 15 * u);
   const lines = compact
-    ? [['Hold', 'Push down / dive'], ['Let go uphill', 'Launch'], ['Land on a downslope', 'Perfect!'], ['Slam into a wave', 'Wipeout']]
-    : [['Hold anywhere', 'Push down into the wave'], ['Let go going uphill', 'Launch'], ['Hold in the air', 'Dive'], ['Come down on a downslope', 'Perfect! (3 = Fever)'], ['Slam into a wave face', 'Wipeout']];
+    ? [['Hold', 'Push down / dive'], ['Let go uphill', 'Launch'], ['Land on a downslope', 'Perfect!'], ['Slam a wave or slow down', 'Wipeout']]
+    : [['Hold anywhere', 'Push down into the wave'], ['Let go going uphill', 'Launch'], ['Hold in the air', 'Dive'], ['Come down on a downslope', 'Perfect! (3 = Fever)'], ['Slam into a wave face', 'Wipeout'], ['Lose too much speed', 'The whitewater gets you']];
   const subF = fd(Math.max(compact ? 14 : 18, 38 * u));
   ctx.font = subF;
   const sub = 'SURF', tw = ctx.measureText(sub).width, sw = tw + Math.max(28, 64 * u), sh = Math.max(compact ? 24 : 30, 56 * u);
@@ -1378,6 +1429,15 @@ const fileIn = document.getElementById('file');
 for (const id of ['mute', 'model', 'skin']) document.getElementById(id).addEventListener('pointerdown', e => e.stopPropagation());
 document.getElementById('skin').addEventListener('click', e => { e.stopPropagation(); applySkin(skinIdx + 1, true); e.currentTarget.blur(); });
 applySkin(skinIdx, false);
+const nightBtn = document.getElementById('night');
+function setNight(on, announce) {
+  nightMode = on; nightBtn.textContent = on ? 'Day mode' : 'Night mode'; nightBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  try { localStorage.setItem('aero-surf-night', on ? '1' : '0'); } catch (e) { }
+  if (announce) callout(on ? 'Night mode' : 'Day mode', on ? 'Moon, stars and glowing water' : 'Sunshine and rainbows', 1.4);
+}
+nightBtn.addEventListener('pointerdown', e => e.stopPropagation());
+nightBtn.addEventListener('click', e => { e.stopPropagation(); setNight(!nightMode, true); nightBtn.blur(); });
+setNight(nightMode, false);
 const fullBtn = document.getElementById('full');
 if (document.fullscreenEnabled && document.documentElement.requestFullscreen) fullBtn.hidden = false;
 fullBtn.addEventListener('pointerdown', e => e.stopPropagation());
@@ -1403,6 +1463,7 @@ window.addEventListener('keydown', e => {
   else if (e.code === 'KeyM') { initAudio(); setMute(!AU.on); }
   else if (e.code === 'KeyR' && custom) modelYaw += Math.PI / 2;
   else if (e.code === 'KeyK') applySkin(skinIdx + 1, true);
+  else if (e.code === 'KeyN') setNight(!nightMode, true);
   else if ((e.code === 'KeyP' || e.code === 'Escape') && state === 'play') paused = !paused;
 });
 window.addEventListener('keyup', e => { if (keysDown.delete(e.code)) syncInput(); });

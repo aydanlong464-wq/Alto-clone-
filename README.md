@@ -17,6 +17,7 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 | Hold anywhere (or Space / arrows) | Push down. On the water this builds speed going downhill; in the air you dive. |
 | Let go | Going uphill, letting go launches you off the crest |
 | K / **Skin** button | Change skin |
+| N / **Night mode** button | Switch between day and night |
 | P / Esc | Pause |
 | M | Mute |
 | R | Turn a custom model 90° |
@@ -27,7 +28,9 @@ It plays like Dune: one touch, and the surfer points along its flight path. Unli
 - **Diving turns height into speed.** Just above the water, your path swoops onto the wave and keeps its momentum, so a well-timed dive onto a downslope sends you flying down it.
 - **Perfect!** Come down with your path matching a downslope for a speed boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
 - **Up the face!** Meeting an oncoming wave face, you ride up it and can launch again. You keep most of your speed.
-- **Wipeout!** Only a near-vertical nose-dive into a wave at high speed ends the run.
+- **Wipeout!** Slamming steeply into a wave face ends the run, and the margin for error tightens the further you get.
+- **The whitewater.** A wall of breaking foam rolls in behind you and speeds up over time. Keep your speed up and it falls back; botch a few landings and it catches you. The WHITEWATER meter shows how close it is.
+- **Night mode** swaps in four night zones (Moonlit Lagoon, Bioluminescence, Aurora Night, Midnight Neon) with stars, a moon, aurora bands, glowing plankton and wake, glowing jellyfish and lit windows on the towers. Your choice is remembered.
 - There is no timer. Surf as far as you can. The zones change every 600 m: Crystal Lagoon, Emerald Bay, Deep Blue, Lime Rain and Aqua Aurora.
 
 ### Full screen on a phone
