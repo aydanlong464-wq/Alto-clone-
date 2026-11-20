@@ -568,14 +568,21 @@ const loadFile = f => { if (f) loadURL(URL.createObjectURL(f), f.name); };
 const orbMat = shiny(0xb8f4ff, { transparent: true, opacity: 0.7, roughness: 0.02, iridescence: 1, envMapIntensity: 2, emissive: 0x3a7aa0, emissiveIntensity: 0.2 });
 const orbGeo = new THREE.SphereGeometry(0.5, 28, 18);
 let orbs = [];
-const PMAX = 700, pPos = new Float32Array(PMAX * 3).fill(-9999);
+const PMAX = 2400, pPos = new Float32Array(PMAX * 3).fill(-9999);
 const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-const pMat = new THREE.PointsMaterial({ size: 0.32, map: dotTex, transparent: true, depthWrite: false, sizeAttenuation: true, toneMapped: false });
+const pMat = new THREE.PointsMaterial({ size: 0.55, map: dotTex, color: 0xdff8ff, transparent: true, depthWrite: false, sizeAttenuation: true, toneMapped: false });
 const spray = new THREE.Points(pGeo, pMat); spray.frustumCulled = false; spray.position.z = 0.3; spray.renderOrder = 15; scene.add(spray);
+const MMAX = 320, mPos = new Float32Array(MMAX * 3).fill(-9999);
+const mGeo = new THREE.BufferGeometry(); mGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3));
+const mMat = new THREE.PointsMaterial({ size: 2.6, map: dotTex, color: 0xeefcff, transparent: true, opacity: 0.3, depthWrite: false, sizeAttenuation: true, toneMapped: false });
+const mist = new THREE.Points(mGeo, mMat); mist.frustumCulled = false; mist.renderOrder = 14; scene.add(mist);
+const mparts = Array.from({ length: MMAX }, () => ({ life: 0 }));
+let mCur = 0;
+function emitMist(x, y, vx, vy, life) { const p = mparts[mCur]; mCur = (mCur + 1) % MMAX; Object.assign(p, { x, y, z: rand(-0.6, 0.6), vx, vy, life }); }
 const parts = Array.from({ length: PMAX }, () => ({ life: 0 }));
 let pCur = 0;
-function emit(x, y, vx, vy, life) { const p = parts[pCur]; pCur = (pCur + 1) % PMAX; Object.assign(p, { x, y, vx, vy, life }); }
-function splash(x, y, n, power) { for (let i = 0; i < n; i++) emit(x + rand(-0.6, 0.6), y, rand(-4, 4) * power, rand(2, 8) * power, rand(0.4, 1)); }
+function emit(x, y, vx, vy, life, vz = 0) { const p = parts[pCur]; pCur = (pCur + 1) % PMAX; Object.assign(p, { x, y, z: 0, vx, vy, vz, life }); }
+function splash(x, y, n, power) { for (let i = 0; i < n; i++) emit(x + rand(-0.8, 0.8), y, rand(-4, 4) * power, rand(2, 8) * power, rand(0.4, 1.1), rand(-2, 2) * power); for (let i = 0; i < n / 6; i++) emitMist(x + rand(-1, 1), y + rand(0, 1), rand(-2, 2), rand(1, 3) * power, rand(0.8, 1.4)); }
 
 /* ───────────────────────── audio ───────────────────────── */
 const AU = { ctx: null, on: true };
@@ -641,7 +648,8 @@ let state = 'title', paused = false, simT = 0, time = 0, acc = 0;
 let dist = 0, trickScore = 0, best = 0, smoothRun = 0, smoothTotal = 0, bestAir = 0, orbStreak = 0;
 let timeLeft = TIME0, fever = 0, feverT = 0, overT = 0, playT = 0, flashA = 0, newBest = false, safe = true;
 let lastBump = null, trailT = 0, rogue = 0, endReason = '';
-const input = { held: false };
+const input = { held: false, side: 0 };
+const ROT_B = 3.4;
 const cam = { x: 0, y: 0, d: 40 };
 const trail = [];
 let callouts = [];
@@ -652,13 +660,13 @@ const score = () => Math.floor(trickScore + dist);
 function resetWorld(isSafe) {
   safe = isSafe; for (const o of orbs) scene.remove(o.mesh); orbs = []; bumps = []; callouts = [];
   simT = 0; dist = 0; trickScore = 0; smoothRun = 0; smoothTotal = 0; bestAir = 0; orbStreak = 0; fever = 0; feverT = 0; newBest = false; timeLeft = TIME0;
-  lastBump = null; rogue = 0; R.spin = 0;
+  lastBump = null; rogue = 0; R.spin = 0; R.x = 0; R.speed = 14;
   spawnAhead();
-  Object.assign(R, { x: 0, y: H(0, 0), vx: 14, vy: 0, speed: 14, ang: 0, mode: 'water', airT: 0, sq: 0 });
+  Object.assign(R, { x: 0, y: H(0, 0), vx: 14, vy: 0, speed: 14, ang: 0, angVel: 0, mode: 'water', airT: 0, sq: 0 });
   riderRoot.rotation.set(0, 0, 0);
   cam.x = R.x + 8; cam.y = -4; cam.d = 40; trail.length = 0;
 }
-function startGame() { resetWorld(false); state = 'play'; playT = 0; input.held = false; flashA = 0.4; }
+function startGame() { resetWorld(false); state = 'play'; playT = 0; ptrs.clear(); keysDown.clear(); syncInput(); flashA = 0.4; }
 
 function spawnAhead() {
   const d = difficulty();
@@ -692,7 +700,9 @@ function land(sy) {
   const demo = state !== 'play', air = R.airT;
   R.y = sy;
   if (air > 0.35 && !demo) { bestAir = Math.max(bestAir, air); trickScore += Math.floor(air * 40) * (fever ? 2 : 1); }
-  if (diff < 0.3 && th < -0.03) {
+  const bd = wrap(R.ang - th), bad = Math.abs(bd);
+  R.angVel = 0;
+  if (bad < 0.3 && th < -0.03 && diff < 0.8) {
     R.mode = 'water'; R.vy = 0; R.speed = clamp(along * 1.04 + 1, MINS, MAXS + 8); R.ang = th;
     if (air > 0.35) {
       R.sq = 0.25; splash(R.x, sy, 14, 0.6);
@@ -706,14 +716,16 @@ function land(sy) {
         else if (fever) feverT = Math.min(feverT + 1.5, 8);
       }
     }
-  } else if (diff < 0.6) {
-    R.mode = 'water'; R.vy = 0; R.speed = clamp(along, MINS, MAXS); R.ang = th; R.sq = 0.35;
-    if (air > 0.35) { splash(R.x, sy, 18, 0.7); smoothRun = 0; }
+  } else if (bad < 0.6) {
+    R.mode = 'water'; R.vy = 0; R.speed = clamp(Math.max(along, 0) * (diff < 0.6 ? 1 : 0.8), MINS, MAXS); R.ang = th; R.sq = 0.35;
+    if (air > 0.35) { splash(R.x, sy, 22, 0.8); smoothRun = 0; }
+  } else if (demo || bad < 0.95 || impact < 9) {
+    smoothRun = 0;
+    R.mode = 'water'; R.vy = 0; R.speed = clamp(Math.max(along, 0) * 0.55, MINS, MAXS); R.ang = th; R.sq = 0.5;
+    sfx.splash(); splash(R.x, sy, 40, 1); if (!demo) callout('Splash!', 'Match the board to the wave');
   } else {
     smoothRun = 0;
-    if (!demo && impact > 9) { wipeout(diff > 1.2 ? 'You hit the wave nose-first.' : 'You landed against the wave.'); return; }
-    R.mode = 'water'; R.vy = 0; R.speed = clamp(Math.max(along, 0) * 0.6, MINS, MAXS); R.ang = th; R.sq = 0.5;
-    sfx.splash(); splash(R.x, sy, 36, 1); if (!demo) callout('Splash!', 'Land on the downslope');
+    wipeout(bd > 0 ? 'You landed tail-first.' : 'You hit the wave nose-first.'); return;
   }
   R.airT = 0;
 }
@@ -746,13 +758,23 @@ function step(dt) {
     const nx = R.x + R.speed * Math.cos(th) * dt, ny = H(nx, simT), py = R.y + R.vy * dt - 0.5 * g * dt * dt;
     if (py > ny + 0.004) { R.x = nx; R.y = py; R.vx = R.speed * Math.cos(th); R.mode = 'air'; R.airT = 0; }
     else { R.vy = clamp((ny - R.y) / dt, -40, 40); R.x = nx; R.y = ny; R.ang += wrap(th - R.ang) * Math.min(1, 16 * dt); R.vx = R.speed * Math.cos(th); }
-    if (R.speed > 6 && chance(0.6)) emit(R.x - 1, R.y + 0.05, -R.vx * 0.12 + rand(-1, 1), rand(1.5, 4) * (0.4 + R.speed / 35), rand(0.3, 0.6));
+    if (R.speed > 5) {
+      // spray off the tail: droplets fanning back and up, a rooster tail at speed, and mist
+      const tx = R.x - 1.45 * Math.cos(R.ang), ty = R.y + 0.08 - 1.45 * Math.sin(R.ang), k = R.speed / 30;
+      let n = R.speed / 6 + (hold ? 2 : 0);
+      for (; n > 0; n--) if (n >= 1 || chance(n)) emit(tx + rand(-0.3, 0.3), ty, -R.vx * rand(0.08, 0.35) + rand(-1.5, 1.5), rand(1.5, 6) * (0.45 + k), rand(0.35, 0.85), rand(-1.6, 1.6));
+      if (R.speed > 20 && chance(0.7)) emit(tx, ty + 0.1, -R.vx * rand(0.18, 0.3), rand(6, 11) * k, rand(0.6, 1.0), rand(-0.5, 0.5));
+      if (chance(0.45 + k * 0.4)) emitMist(tx - rand(0, 1), ty + 0.3, -R.vx * 0.25, rand(0.8, 2.5), rand(0.7, 1.3));
+      if (hold && chance(0.5)) emit(R.x + 1.2 * Math.cos(R.ang), R.y + 0.05, rand(-1, 1), rand(1, 3), 0.4, (chance(0.5) ? 1 : -1) * rand(2, 4));
+    }
   } else if (R.mode === 'air') {
     R.airT += dt;
     R.vy -= g * dt; R.vx *= 1 - 0.004 * dt;
     R.x += R.vx * dt; R.y += R.vy * dt;
     R.speed = Math.hypot(R.vx, R.vy);
-    R.ang += wrap(Math.atan2(R.vy, R.vx) * 0.85 - R.ang) * Math.min(1, 5 * dt);
+    if (hold && !demo) R.angVel += (-ROT_B * input.side - R.angVel) * Math.min(1, 9 * dt);
+    else { R.angVel *= Math.exp(-5 * dt); R.ang += wrap(Math.atan2(R.vy, R.vx) * 0.85 - R.ang) * Math.min(1, (demo ? 5 : 1.3) * dt); }
+    R.ang += R.angVel * dt;
     if (fever && chance(0.5)) emit(R.x - 0.5, R.y + 0.8, rand(-2, 0), rand(-1, 1), 0.5);
     const sy = H(R.x, simT);
     if (R.y <= sy) land(sy);
@@ -899,10 +921,17 @@ function update(dt) {
   for (let i = 0; i < PMAX; i++) {
     const p = parts[i];
     if (p.life <= 0) { pPos[i * 3 + 1] = -9999; continue; }
-    p.life -= dt; p.vy -= 16 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
-    pPos[i * 3] = p.x; pPos[i * 3 + 1] = p.y; pPos[i * 3 + 2] = 0;
+    p.life -= dt; p.vy -= 16 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += (p.vz || 0) * dt;
+    pPos[i * 3] = p.x; pPos[i * 3 + 1] = p.y; pPos[i * 3 + 2] = p.z;
   }
   pGeo.attributes.position.needsUpdate = true;
+  for (let i = 0; i < MMAX; i++) {
+    const p = mparts[i];
+    if (p.life <= 0) { mPos[i * 3 + 1] = -9999; continue; }
+    p.life -= dt; p.vy -= 2 * dt; p.vx *= Math.exp(-1.5 * dt); p.x += p.vx * dt; p.y += p.vy * dt;
+    mPos[i * 3] = p.x; mPos[i * 3 + 1] = p.y; mPos[i * 3 + 2] = p.z;
+  }
+  mGeo.attributes.position.needsUpdate = true;
 
   for (const c of callouts) c.age += dt;
   callouts = callouts.filter(c => c.age < c.life);
@@ -917,6 +946,7 @@ function resize() {
   W = Math.max(1, innerWidth); H_ = Math.max(1, innerHeight); DPR = Math.min(window.devicePixelRatio || 1, 2);
   ui.width = Math.round(W * DPR); ui.height = Math.round(H_ * DPR);
   renderer.setSize(W, H_, false); UIS = Math.min(W / 1100, H_ / 700);
+  camera.aspect = W / H_; camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
 function rr(x, y, w, h, r) { r = Math.min(r, h / 2, w / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath(); }
@@ -1005,7 +1035,7 @@ function drawTitle() {
   gem(x + size * 0.05, y + size * 0.2, sw, sh, pal.accent);
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; shadowText(sub, x + size * 0.05 + (sw - tw) / 2, y + size * 0.2 + sh * 0.53, '#fff', 3);
   const fs = Math.max(12, 15 * u), px = x, py = y + size * 0.2 + sh + fs * 1.4;
-  const lines = [['Hold', 'Push into the wave / dive'], ['Let go going uphill', 'Launch'], ['Land on a downslope', 'Smooth! (3 = Fever)'], ['Land against a wave', 'Wipeout']];
+  const lines = [['Hold', 'Push down into the wave'], ['Let go going uphill', 'Launch'], ['In the air: hold right  /  →', 'Tip nose down'], ['In the air: hold left  /  ←', 'Tip nose up'], ['Board flat on the downslope', 'Smooth! (3 = Fever)'], ['Board at a bad angle', 'Wipeout']];
   const pw = Math.min(W - px * 2, fs * 25), ph = fs * 1.8 * lines.length + fs * 1.2;
   glass(px, py, pw, ph, fs * 0.9, tint(), true);
   lines.forEach(([a, b], i) => {
@@ -1051,10 +1081,24 @@ function drawUI() {
   if (flashA > 0.01) { ctx.fillStyle = `rgba(255,255,255,${flashA})`; ctx.fillRect(0, 0, W, H_); }
   if (state === 'play' && playT < 8) {
     ctx.font = fu(Math.max(12, 15 * UIS), 700);
-    const t = playT < 4 ? 'Hold going downhill to push into the wave' : 'Let go going uphill to launch. Land on the downslope or wipe out!';
+    const t = playT < 4 ? 'Hold going downhill to push into the wave. Let go going uphill to launch.' : 'In the air, hold right to tip forward, left to tip back. Match the wave!';
     const w = ctx.measureText(t).width + 32, h = Math.max(32, 40 * UIS), y = H_ - h - 64;
     glass(W / 2 - w / 2, y, w, h, h / 2, tint(), true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = NAVY; ctx.fillText(t, W / 2, y + h / 2 + 1);
+  }
+  if (state === 'play') {
+    // side hints: which half of the screen tips the board which way, lit while held
+    for (const sd of [-1, 1]) {
+      const on = input.held && input.side === sd && R.mode === 'air';
+      if (on) { const g = ctx.createLinearGradient(sd < 0 ? 0 : W, 0, sd < 0 ? W * 0.25 : W * 0.75, 0); g.addColorStop(0, rgba(pal.accent, 0.28)); g.addColorStop(1, rgba(pal.accent, 0)); ctx.fillStyle = g; ctx.fillRect(sd < 0 ? 0 : W * 0.75, 0, W * 0.25, H_); }
+      if (playT < 12 || on) {
+        ctx.font = fu(Math.max(11, 13 * UIS), 700);
+        const t = sd < 0 ? '◀  Tip back' : 'Tip forward  ▶', w = ctx.measureText(t).width + 28, h = 32, y = H_ - 104;
+        const x = sd < 0 ? 14 : W - 14 - w;
+        if (on) gem(x, y, w, h, pal.accent); else glass(x, y, w, h, h / 2, tint(), true);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = on ? '#fff' : NAVY; ctx.fillText(t, x + w / 2, y + h / 2 + 1);
+      }
+    }
   }
   drawCallouts(); drawHUD();
   if (state === 'title') drawTitle();
@@ -1077,12 +1121,14 @@ function drawUI() {
 /* ───────────────────────── input ───────────────────────── */
 function press() {
   initAudio();
-  if (paused) { paused = false; return; }
-  if (state === 'title') { startGame(); return; }
-  if (state === 'over') { if (overT > 2) startGame(); return; }
-  input.held = true;
+  if (paused) { paused = false; return false; }
+  if (state === 'title') { startGame(); return false; }
+  if (state === 'over') { if (overT > 2) startGame(); return false; }
+  return true;
 }
-const release = () => { input.held = false; };
+const ptrs = new Map(), keysDown = new Map();
+function syncInput() { let n = 0, sd = 0; for (const v of ptrs.values()) { n++; sd += v; } for (const v of keysDown.values()) { n++; sd += v; } input.held = n > 0; input.side = clamp(sd, -1, 1); }
+const release = () => { ptrs.clear(); keysDown.clear(); syncInput(); };
 const fileIn = document.getElementById('file');
 for (const id of ['mute', 'model', 'skin']) document.getElementById(id).addEventListener('pointerdown', e => e.stopPropagation());
 document.getElementById('skin').addEventListener('click', e => { e.stopPropagation(); applySkin(skinIdx + 1, true); e.currentTarget.blur(); });
@@ -1092,20 +1138,20 @@ document.getElementById('model').addEventListener('click', e => { e.stopPropagat
 fileIn.addEventListener('change', () => { loadFile(fileIn.files[0]); fileIn.value = ''; });
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); loadFile(e.dataTransfer.files[0]); });
-window.addEventListener('pointerdown', e => { if (e.target.closest && e.target.closest('#controls')) return; e.preventDefault(); press(); });
-window.addEventListener('pointerup', release);
-window.addEventListener('pointercancel', release);
+window.addEventListener('pointerdown', e => { if (e.target.closest && e.target.closest('#controls')) return; e.preventDefault(); if (press()) { ptrs.set(e.pointerId, e.clientX > W / 2 ? 1 : -1); syncInput(); } });
+window.addEventListener('pointermove', e => { if (ptrs.has(e.pointerId)) { ptrs.set(e.pointerId, e.clientX > W / 2 ? 1 : -1); syncInput(); } });
+for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, e => { ptrs.delete(e.pointerId); syncInput(); });
 window.addEventListener('blur', () => { release(); if (state === 'play') paused = true; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') paused = true; });
-const HOLD_KEYS = ['Space', 'ArrowDown', 'ArrowUp', 'KeyS', 'KeyW', 'KeyZ', 'KeyX', 'Enter'];
+const KEY_SIDE = { Space: 0, ArrowDown: 0, ArrowUp: 0, KeyS: 0, KeyW: 0, KeyZ: 0, KeyX: 0, Enter: 0, ArrowRight: 1, KeyD: 1, ArrowLeft: -1, KeyA: -1 };
 window.addEventListener('keydown', e => {
-  if (HOLD_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press(); }
+  if (e.code in KEY_SIDE) { e.preventDefault(); if (!e.repeat && press()) { keysDown.set(e.code, KEY_SIDE[e.code]); syncInput(); } }
   else if (e.code === 'KeyM') { initAudio(); setMute(!AU.on); }
   else if (e.code === 'KeyR' && custom) modelYaw += Math.PI / 2;
   else if (e.code === 'KeyK') applySkin(skinIdx + 1, true);
   else if ((e.code === 'KeyP' || e.code === 'Escape') && state === 'play') paused = !paused;
 });
-window.addEventListener('keyup', e => { if (HOLD_KEYS.includes(e.code)) release(); });
+window.addEventListener('keyup', e => { if (keysDown.delete(e.code)) syncInput(); });
 
 /* ───────────────────────── loop ───────────────────────── */
 let last = 0;
@@ -1122,7 +1168,7 @@ function boot(data) {
   requestAnimationFrame(t => { last = t; frame(t); });
 }
 // test hook: fast-forward the simulation without rendering
-window.__aeroAdvance = (sec, play, hold) => { if (play && state !== 'play') startGame(); if (hold !== undefined) input.held = hold; for (let i = 0; i < sec * 60; i++) update(1 / 60); return { state, dist: Math.round(dist), mode: R.mode, speed: +R.speed.toFixed(1), smooth: smoothTotal, fever, timeLeft: +timeLeft.toFixed(1), y: +R.y.toFixed(1), slope: +slopeAt(R.x, simT).toFixed(3), vy: +R.vy.toFixed(1), ahead: +slopeAt(R.x + R.vx * 0.35, simT).toFixed(3) }; };
+window.__aeroAdvance = (sec, play, hold, side) => { if (play && state !== 'play') startGame(); if (hold !== undefined) input.held = hold; input.side = side || 0; for (let i = 0; i < sec * 60; i++) update(1 / 60); return { state, dist: Math.round(dist), mode: R.mode, speed: +R.speed.toFixed(1), smooth: smoothTotal, fever, timeLeft: +timeLeft.toFixed(1), y: +R.y.toFixed(1), slope: +slopeAt(R.x, simT).toFixed(3), vy: +R.vy.toFixed(1), ahead: +slopeAt(R.x + R.vx * 0.35, simT).toFixed(3) }; };
 const hot = window.claude && window.claude.hot;
 try { if (hot && hot.snapshot) hot.snapshot(() => ({ best })); } catch (e) { }
 if (hot && hot.ready) hot.ready(boot); else boot((hot && hot.data) || {});

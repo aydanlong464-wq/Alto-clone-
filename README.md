@@ -14,16 +14,19 @@ To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy fr
 
 | Input | Action |
 | --- | --- |
-| Hold (tap-and-hold / Space) | Push into the wave. Going downhill this builds speed; in the air you dive. |
+| Hold anywhere (or Space) | Push down. On the water this builds speed going downhill; in the air you dive. |
 | Let go | Going uphill, letting go launches you off the crest |
+| In the air: hold the **right** half (or →/D) | Dive and tip the board nose **down** |
+| In the air: hold the **left** half (or ←/A) | Dive and tip the board nose **up** |
 | K / **Skin** button | Change skin |
 | P / Esc | Pause |
 | M | Mute |
 | R | Turn a custom model 90° |
 
 - **The waves are huge.** Swells grow as you go, and monster waves come in sets.
-- **Smooth!** Land matching a downslope to keep your speed and get a boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
-- **Wipeout!** Land against a wave, nose-first or too hard, and the run ends. A slightly off landing just splashes and slows you down.
+- **Landings are judged on your board angle.** Tip the board to match the wave before you touch down. If you let go in the air, the board slowly levels to your flight path.
+- **Smooth!** Land with the board flat on a downslope to keep your speed and get a boost. Three in a row starts **Fever**: double points, more speed and a rainbow shimmer.
+- **Splash!** A slightly-off landing costs speed. **Wipeout!** A clearly wrong angle, nose-first or tail-first, ends the run.
 - There is no timer. Surf as far as you can. The zones change every 600 m: Crystal Lagoon, Emerald Bay, Deep Blue, Lime Rain and Aqua Aurora.
 
 ## How it works
