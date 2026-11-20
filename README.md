@@ -1,6 +1,6 @@
 # Aero Surf
 
-A side-on surfing game: Frutiger Aero gloss with Killer 7 colors. The camera is flat and side-on, so you see a cross-section of the ocean: light rays, caustics, fish, seaweed and the seabed under the waves. The surfer is a bubbly, iridescent figure with round arms and legs and a floating head, and it is real 3D (three.js) lit from the side.
+A 2.5D surfing game: Frutiger Aero gloss with Killer 7 colors. Everything is real 3D (three.js) seen from a side-scrolling perspective camera. The shaded ocean surface rolls away to glossy islands and blocky towers on the horizon, and the front of the ocean is cut open like an aquarium, so you see under the waves: light rays, caustics, iridescent fish, seaweed, bubbles and a 3D seabed. The surfer is a bubbly, iridescent figure with round arms and legs and a floating head.
 
 ## Play
 
@@ -31,6 +31,7 @@ A custom surfer can be swapped in; see [`models/README.md`](models/README.md).
 
 ## Other versions
 
+- `surf2d.html`: the flat side-on (orthographic) version of this game.
 - `surf3d.html`: the earlier 3D-camera surf version with backflips, rocks and buoys.
 
 - `runner.html`: the 2D Aero downhill runner.

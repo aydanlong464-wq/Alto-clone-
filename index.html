@@ -99,39 +99,41 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 const scene = new THREE.Scene();
-const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
-camera.position.set(0, 0, 80);
+scene.fog = new THREE.Fog(0xd8f6ff, 260, 1300);
+const camera = new THREE.PerspectiveCamera(44, 1, 0.5, 4000);
+const sunDir = v3(0.42, 0.22, -0.88).normalize();
 
-const hemi = new THREE.HemisphereLight(0xffffff, 0x2266aa, 1.1); scene.add(hemi);
-const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(-4, 8, 7); scene.add(key); scene.add(key.target);
-const rimL = new THREE.DirectionalLight(0x1aa7ff, 2.4); rimL.position.set(6, 2, -6); scene.add(rimL); scene.add(rimL.target);
-
-// sky gradient env so glossy and iridescent surfaces have something to reflect
-const ENV_FS = `uniform vec3 uTop, uHor, uLow; varying vec3 vDir;
-void main(){ vec3 d = normalize(vDir); vec3 c = d.y > 0.0 ? mix(uHor, uTop, pow(d.y, 0.6)) : mix(uHor, uLow, pow(-d.y, 0.5));
-  c += vec3(1.0) * pow(max(dot(d, normalize(vec3(-0.4, 0.7, 0.6))), 0.0), 40.0) * 3.0; gl_FragColor = vec4(c, 1.0); }`;
-const envU = { uTop: { value: v3() }, uHor: { value: v3() }, uLow: { value: v3() } };
-const envScene = new THREE.Scene();
-envScene.add(new THREE.Mesh(new THREE.SphereGeometry(40, 32, 16), new THREE.ShaderMaterial({ uniforms: envU, side: THREE.BackSide,
-  vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: ENV_FS })));
-const pmrem = new THREE.PMREMGenerator(renderer);
-let envRT = null;
-function regenEnv() { const old = envRT; envRT = pmrem.fromScene(envScene, 0.04); scene.environment = envRT.texture; if (old) old.dispose(); }
+const hemi = new THREE.HemisphereLight(0xffffff, 0x2266aa, 1.0); scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 2.6); scene.add(key); scene.add(key.target);
+const rimL = new THREE.DirectionalLight(0x1aa7ff, 2.6); scene.add(rimL); scene.add(rimL.target);
 
 /* ───────────────────────── the wave function (shared by GPU and physics) ───────────────────────── */
-const MAXB = 14;
-const CHOP = [[TAU / 9, 0.16, 1.9], [TAU / 4.3, 0.07, 2.9]]; // k, amp, omega
-const C_SWELL = 1.0;
+const MAXB = 16, MAXT = 16, CUT = 2.5, CURVE = 0.0016, C_SWELL = 1.0;
+const WAVES = [[1, 0.25, 26, 0.13], [0.85, -0.5, 15, 0.08], [0.35, 1, 8.5, 0.045]].map(([dx, dz, L, a], i) => {
+  const n = Math.hypot(dx, dz), k = TAU / L; return { kx: dx / n * k, kz: dz / n * k, a, w: Math.sqrt(9.8 * k), ph: i * 1.7 };
+});
+const SHARED_U = {
+  uTime: { value: 0 }, uCurve: { value: CURVE }, uDusk: { value: 0 }, uFever: { value: 0 },
+  uWaves: { value: WAVES.map(w => new THREE.Vector4(w.kx, w.kz, w.a, w.w)) },
+  uBumps: { value: Array.from({ length: MAXB }, () => new THREE.Vector4(0, 0, 1, 1)) },
+  uTrail: { value: Array.from({ length: MAXT }, () => new THREE.Vector4(0, 0, 1, 0)) },
+  uCamP: { value: v3() }, uSun: { value: sunDir.clone() },
+};
+const PALU = CKEYS.reduce((o, k) => (o['u_' + k] = { value: v3() }, o), {});
+const PAL_GLSL = CKEYS.map(k => `uniform vec3 u_${k};`).join('\n');
+const U = extra => Object.assign({}, SHARED_U, PALU, extra || {});
 const H_GLSL = `
-uniform float uTime; uniform vec4 uBumps[${MAXB}];
-float H(float x){
+uniform float uTime, uCurve, uDusk, uFever; uniform vec4 uWaves[3]; uniform vec4 uBumps[${MAXB}]; uniform vec3 uCamP, uSun;
+float swellH(vec2 p){
   float h = 0.0;
-  for (int i = 0; i < ${MAXB}; i++) { vec4 b = uBumps[i]; float u = x - b.x; float w = u < 0.0 ? b.z : b.w; h += b.y * exp(-(u * u) / (w * w)); }
-  h += ${CHOP[0][1]} * sin(${CHOP[0][0].toFixed(5)} * x - ${CHOP[0][2]} * uTime);
-  h += ${CHOP[1][1]} * sin(${CHOP[1][0].toFixed(5)} * x - ${CHOP[1][2]} * uTime + 1.7);
+  for (int i = 0; i < ${MAXB}; i++) { vec4 b = uBumps[i]; float u = p.x - b.x - p.y * p.y * uCurve; float w = u < 0.0 ? b.z : b.w;
+    h += b.y * exp(-(u * u) / (w * w)) / (1.0 + p.y * p.y / 9000.0); }
   return h;
 }
-float seabed(float x){ return -12.5 - 1.6 * sin(x * 0.045) - 0.9 * sin(x * 0.11 + 1.3) - 0.4 * sin(x * 0.27 + 0.4); }`;
+float baseH(vec2 p){ float h = 0.0; for (int i = 0; i < 3; i++) { vec4 w = uWaves[i]; h += w.z * sin(dot(w.xy, p) - w.w * uTime + float(i) * 1.7); } return h; }
+float H3(vec2 p){ return baseH(p) + swellH(p); }
+float seabed(float x, float z){ return -12.5 - 1.6 * sin(x * 0.045) - 0.9 * sin(x * 0.11 + 1.3) - 0.4 * sin(x * 0.27 + 0.4) + 0.8 * sin(z * 0.21 + x * 0.03) - z * 0.04; }
+vec3 dusk(vec3 c){ return mix(c, c * vec3(0.28, 0.3, 0.55), uDusk); }`;
 let bumps = [];
 function H(x, t) {
   let h = 0;
@@ -140,139 +142,180 @@ function H(x, t) {
     if (u < -4 * b.wl || u > 4 * b.wr) continue;
     const w = u < 0 ? b.wl : b.wr; h += b.a * Math.exp(-(u * u) / (w * w));
   }
-  return h + CHOP[0][1] * Math.sin(CHOP[0][0] * x - CHOP[0][2] * t) + CHOP[1][1] * Math.sin(CHOP[1][0] * x - CHOP[1][2] * t + 1.7);
+  for (const w of WAVES) h += w.a * Math.sin(w.kx * x - w.w * t + w.ph);
+  return h;
 }
 const slopeAt = (x, t) => (H(x + 0.05, t) - H(x - 0.05, t)) / 0.1;
-const seabed = x => -12.5 - 1.6 * Math.sin(x * 0.045) - 0.9 * Math.sin(x * 0.11 + 1.3) - 0.4 * Math.sin(x * 0.27 + 0.4);
+const seabedZ = (x, z) => -12.5 - 1.6 * Math.sin(x * 0.045) - 0.9 * Math.sin(x * 0.11 + 1.3) - 0.4 * Math.sin(x * 0.27 + 0.4) + 0.8 * Math.sin(z * 0.21 + x * 0.03) - z * 0.04;
+const seabed = x => seabedZ(x, 0);
 
-/* ───────────────────────── backdrop: sky, beams, towers, islands ───────────────────────── */
-const SHARED_U = { uTime: { value: 0 }, uBumps: { value: Array.from({ length: MAXB }, () => new THREE.Vector4(0, 0, 1, 1)) }, uDusk: { value: 0 }, uFever: { value: 0 } };
-const P = () => CKEYS.reduce((o, k) => (o['u_' + k] = { value: v3() }, o), {});
-const PALU = P();
-const PAL_GLSL = CKEYS.map(k => `uniform vec3 u_${k};`).join('\n');
-const bgU = Object.assign({ uCam: { value: new THREE.Vector2() }, uView: { value: new THREE.Vector2(20, 20) }, uAspect: { value: 1 } }, SHARED_U, PALU);
-const BG_FS = `${PAL_GLSL}
-uniform vec2 uCam, uView; uniform float uTime, uDusk, uFever, uAspect;
-varying vec2 vUv;
-float hash(float n){ return fract(sin(n * 12.9898) * 43758.5453); }
-float vn(float x){ float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(hash(i), hash(i + 1.0), f); }
+/* ───────────────────────── sky dome with hard light shafts ───────────────────────── */
+const skyMat = new THREE.ShaderMaterial({
+  uniforms: U(), side: THREE.BackSide, depthWrite: false, fog: false,
+  vertexShader: 'varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }',
+  fragmentShader: `${PAL_GLSL}
+uniform float uTime, uDusk, uFever; uniform vec3 uSun; varying vec3 vDir;
 void main(){
-  vec2 w = uCam + (vUv - 0.5) * uView;
-  float t = clamp((w.y + 1.0) / 40.0, 0.0, 1.0);
-  vec3 col = mix(u_skyHor, u_skyMid, smoothstep(0.0, 0.3, t));
-  col = mix(col, u_skyTop, smoothstep(0.25, 1.0, t));
-  // sun pinned to the screen with a glossy bloom
-  vec2 d = (vUv - vec2(0.8, 0.8)) * vec2(uAspect, 1.0) / min(uAspect, 1.0);
-  float r = length(d);
-  col = mix(col, u_sun, smoothstep(0.072, 0.066, r));
-  col += u_sun * exp(-r * 5.5) * 0.5;
-  // hard Killer 7 style light shafts
-  float a = atan(d.y, d.x);
-  float sh = step(0.86 - 0.08 * uFever, sin(a * 7.0 + uTime * (0.04 + uFever * 0.6))) * smoothstep(1.6, 0.05, r);
-  col = mix(col, u_beam, sh * 0.22);
-  // far layer: blocky towers on the horizon (slow parallax)
-  float px = uCam.x * 0.12 + (vUv.x - 0.5) * uView.x;
-  float cell = floor(px / 5.0);
-  float th = step(0.55, hash(cell)) * (1.2 + hash(cell + 7.0) * 4.5) * step(0.3, fract(px / 5.0)) * step(fract(px / 5.0), 0.7);
-  if (w.y < th - 0.5 && w.y > -6.0) {
-    float k = clamp((w.y + 0.5) / max(th, 0.1), 0.0, 1.0);
-    vec3 tc = mix(u_tower * 0.35, u_tower, k);
-    tc = mix(tc, u_skyHor, 0.5);
-    float edge = step(0.82, fract(px / 5.0)) ;
-    col = mix(tc * (1.0 - edge * 0.3), col, 0.12);
-  }
-  // near layer: glossy islands
-  float px2 = uCam.x * 0.35 + (vUv.x - 0.5) * uView.x;
-  float ih = max(0.0, vn(px2 * 0.035) * 13.0 - 7.0);
-  if (ih > 0.0 && w.y < ih) {
-    float k = clamp(w.y / ih, 0.0, 1.0);
-    vec3 ic = mix(u_islD, u_isl, smoothstep(0.0, 1.0, k));
-    ic = mix(ic, vec3(1.0), smoothstep(0.35, 0.0, ih - w.y) * 0.6);
-    ic += vec3(1.0) * smoothstep(0.9, 1.0, k) * 0.15;
-    col = ic;
-  }
-  // dusk: the sun goes down when the clock runs out
+  vec3 d = normalize(vDir); float y = d.y;
+  vec3 col = mix(u_skyHor, u_skyMid, smoothstep(0.0, 0.22, y));
+  col = mix(col, u_skyTop, smoothstep(0.18, 0.8, y));
+  if (y < 0.0) col = u_skyHor;
+  float s = max(dot(d, uSun), 0.0);
+  col = mix(col, u_sun, smoothstep(0.99855, 0.9989, s));
+  col += u_sun * (pow(s, 70.0) * 0.5 + pow(s, 6.0) * 0.14);
+  vec3 t1 = normalize(cross(uSun, vec3(0.0, 1.0, 0.0))), t2 = cross(t1, uSun);
+  float a = atan(dot(d, t2), dot(d, t1));
+  float sh = step(0.86 - 0.08 * uFever, sin(a * 7.0 + uTime * (0.04 + uFever * 0.6))) * smoothstep(0.25, 0.97, s) * step(-0.01, y);
+  col = mix(col, u_beam, sh * 0.24);
   col = mix(col, col * vec3(0.25, 0.28, 0.5), uDusk);
-  float st = step(0.9975, hash(floor(vUv.x * 300.0) + floor(vUv.y * 170.0) * 311.0));
-  col += st * uDusk * smoothstep(0.3, 0.8, vUv.y);
+  vec3 q = floor(d * 260.0);
+  float h = fract(sin(dot(q, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  col += step(0.9982, h) * uDusk * clamp(y * 3.0, 0.0, 1.0);
   gl_FragColor = vec4(col, 1.0);
-}`;
-const bg = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({ uniforms: bgU, depthWrite: false,
-  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: BG_FS }));
-bg.position.z = -60; bg.renderOrder = -10; bg.frustumCulled = false; scene.add(bg);
+}` });
+const sky = new THREE.Mesh(new THREE.SphereGeometry(1600, 48, 24), skyMat);
+sky.renderOrder = -10; sky.frustumCulled = false; scene.add(sky);
+const envScene = new THREE.Scene();
+envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), skyMat));
+const pmrem = new THREE.PMREMGenerator(renderer);
+let envRT = null;
+function regenEnv() { const old = envRT; envRT = pmrem.fromScene(envScene, 0.035); scene.environment = envRT.texture; if (old) old.dispose(); }
 
-/* ───────────────────────── water cross-section ───────────────────────── */
+/* ───────────────────────── 3D ocean surface ───────────────────────── */
+const surfMat = new THREE.ShaderMaterial({ uniforms: U(), fog: false,
+  vertexShader: `${H_GLSL}
+varying vec3 vW; varying vec3 vN; varying float vSw;
+float fade(vec2 p){ return 1.0 - smoothstep(170.0, 230.0, length(p - uCamP.xz)); }
+float Hs(vec2 p){ return H3(p) * fade(p); }
+void main(){
+  vec4 wp = modelMatrix * vec4(position, 1.0); vec2 p = wp.xz; float f = fade(p);
+  float sw = swellH(p) * f; wp.y += baseH(p) * f + sw;
+  float e = 0.45;
+  float dx = Hs(p + vec2(e, 0.0)) - Hs(p - vec2(e, 0.0)), dz = Hs(p + vec2(0.0, e)) - Hs(p - vec2(0.0, e));
+  vN = normalize(vec3(-dx / (2.0 * e), 1.0, -dz / (2.0 * e))); vW = wp.xyz; vSw = sw;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`,
+  fragmentShader: `${PAL_GLSL}
+uniform float uTime, uDusk; uniform vec3 uSun; uniform vec4 uTrail[${MAXT}];
+varying vec3 vW; varying vec3 vN; varying float vSw;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+void main(){
+  vec2 q = vW.xz; float t = uTime;
+  vec3 n = normalize(vN + vec3(0.025 * sin(q.x * 1.9 + t * 2.3) + 0.018 * sin(q.x * 3.7 - q.y * 2.9 + t * 3.1), 0.0,
+                               0.025 * sin(q.y * 2.1 - t * 1.9) + 0.018 * sin(q.y * 4.3 + q.x * 1.7 + t * 2.7)));
+  vec3 v = normalize(cameraPosition - vW);
+  float fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  vec3 r = reflect(-v, n);
+  vec3 sky = mix(mix(u_skyHor, u_skyMid, 0.45), u_skyTop, smoothstep(0.0, 0.5, r.y));
+  sky += u_sun * pow(max(dot(r, uSun), 0.0), 6.0) * 0.25;
+  float lift = clamp(vW.y * 0.22 + 0.45, 0.0, 1.0);
+  vec3 body = mix(u_wMid, u_wTop, 0.25 + lift * 0.5);
+  body += u_wTop * 0.35 * clamp(vSw * 0.25, 0.0, 1.0);
+  vec3 col = mix(body, sky, clamp(fres * 0.85, 0.0, 0.85));
+  float nh = max(dot(n, normalize(uSun + v)), 0.0);
+  col += u_sun * (pow(nh, 400.0) * 4.0 + pow(nh, 60.0) * 0.3);
+  float steep = smoothstep(0.1, 0.3, 1.0 - vN.y) * smoothstep(0.6, 2.0, vSw), crest = smoothstep(2.4, 4.8, vSw) * 0.45;
+  float wake = 0.0;
+  for (int i = 0; i < ${MAXT}; i++) { vec4 tr = uTrail[i]; vec2 d = q - tr.xy; float rad = 0.35 + tr.z * 2.2; wake += tr.w * exp(-dot(d, d) / (rad * rad)) * (1.0 - clamp(tr.z, 0.0, 1.0)); }
+  float nz = noise(q * 1.7 + t * 0.6) * 0.6 + noise(q * 4.3 - t) * 0.4;
+  float foam = clamp((steep + crest) * smoothstep(0.35, 0.75, nz) * 1.4 + wake * smoothstep(0.2, 0.6, nz + 0.2), 0.0, 1.0);
+  col = mix(col, u_rim, foam * 0.92);
+  col = mix(col, u_skyHor, smoothstep(180.0, 1100.0, length(cameraPosition - vW)));
+  col = mix(col, col * vec3(0.28, 0.3, 0.55), uDusk);
+  gl_FragColor = vec4(col, 1.0);
+}` });
+function axis(min, max, center, base, grow) {
+  const out = [];
+  for (let x = center; x <= max; x += base + Math.abs(x - center) * grow) out.push(x);
+  for (let x = center - base; x >= min; x -= base + Math.abs(x - center) * grow) out.unshift(x);
+  if (out[0] > min) out.unshift(min);
+  if (out[out.length - 1] < max) out.push(max);
+  return out;
+}
+function grid(xs, zs) {
+  const pos = new Float32Array(xs.length * zs.length * 3); let k = 0;
+  for (const z of zs) for (const x of xs) { pos[k++] = x; pos[k++] = 0; pos[k++] = z; }
+  const idx = [], nx = xs.length;
+  for (let j = 0; j < zs.length - 1; j++) for (let i = 0; i < nx - 1; i++) { const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1; idx.push(a, c, b, b, c, d); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx); return g;
+}
+const ocean = new THREE.Mesh(grid(axis(-280, 400, 0, 0.45, 0.011), axis(-232, CUT, 0, 0.45, 0.019)), surfMat);
+ocean.frustumCulled = false; scene.add(ocean);
+const farOcean = new THREE.Mesh(new THREE.PlaneGeometry(9000, 4000, 1, 1).rotateX(-Math.PI / 2), surfMat);
+farOcean.frustumCulled = false; scene.add(farOcean);
+
+/* ───────────────────────── cutaway: glass front, back wall, 3D seabed ───────────────────────── */
 function ribbon(n) {
   const col = new Float32Array((n + 1) * 2), top = new Float32Array((n + 1) * 2), pos = new Float32Array((n + 1) * 2 * 3), idx = [];
   for (let i = 0; i <= n; i++) { col[i * 2] = col[i * 2 + 1] = i / n; top[i * 2] = 1; top[i * 2 + 1] = 0; }
   for (let i = 0; i < n; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  g.setAttribute('aCol', new THREE.BufferAttribute(col, 1));
-  g.setAttribute('aTop', new THREE.BufferAttribute(top, 1));
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aCol', new THREE.BufferAttribute(col, 1)); g.setAttribute('aTop', new THREE.BufferAttribute(top, 1));
   g.setIndex(idx); return g;
 }
-const RIB_VS = (fn) => `${H_GLSL}
-attribute float aCol; attribute float aTop;
-uniform float uX0, uW, uBottom, uZ;
+const RIB_VS = (topExpr, botExpr) => `${H_GLSL}
+attribute float aCol; attribute float aTop; uniform float uX0, uW, uZ;
 varying vec2 vW; varying float vTop;
-void main(){ float x = uX0 + aCol * uW; float top = ${fn}(x); float y = aTop > 0.5 ? top : uBottom;
+void main(){ float x = uX0 + aCol * uW; float top = ${topExpr}; float y = aTop > 0.5 ? top : ${botExpr};
   vTop = top; vW = vec2(x, y); gl_Position = projectionMatrix * viewMatrix * vec4(x, y, uZ, 1.0); }`;
-const ribU = () => Object.assign({ uX0: { value: 0 }, uW: { value: 1 }, uBottom: { value: -200 }, uZ: { value: 0 }, uPx: { value: 0.03 } }, SHARED_U, PALU);
-const WATER_FS = `${PAL_GLSL}
-uniform float uTime, uDusk, uPx, uFever;
-varying vec2 vW; varying float vTop;
+const ribU = z => U({ uX0: { value: 0 }, uW: { value: 1 }, uZ: { value: z } });
+const glassU = ribU(CUT), backU = ribU(-30), frontBedU = ribU(CUT + 0.03);
+const glassMesh = new THREE.Mesh(ribbon(480), new THREE.ShaderMaterial({ uniforms: glassU, transparent: true, depthWrite: false, fog: false,
+  vertexShader: RIB_VS('H3(vec2(x, uZ))', '-70.0'),
+  fragmentShader: `${PAL_GLSL}
+uniform float uTime, uDusk; varying vec2 vW; varying float vTop;
 void main(){
   float d = vTop - vW.y; vec2 p = vW;
-  vec3 col = mix(u_wTop, u_wMid, smoothstep(0.0, 7.0, d));
-  col = mix(col, u_wDeep, smoothstep(5.0, 24.0, d));
-  // light rays fanning down from the surface
+  vec3 col = mix(u_wTop, u_wMid, smoothstep(0.0, 6.0, d));
+  col = mix(col, u_wDeep, smoothstep(4.0, 22.0, d));
   float s = p.x * 0.16 + d * 0.2;
   float ray = pow(max(0.0, sin(s + sin(p.x * 0.05 + uTime * 0.3) * 1.5)), 14.0) * 0.6 + pow(max(0.0, sin(s * 1.7 + 2.0 + uTime * 0.2)), 24.0) * 0.4;
   ray *= smoothstep(20.0, 0.0, d) * smoothstep(0.0, 1.2, d);
-  col += u_beam * ray * 0.32;
-  // caustics just under the surface
   float c = sin(p.x * 2.1 + uTime * 1.7 + sin(p.y * 1.3 + uTime)) * sin(p.y * 2.3 - uTime * 1.3 + sin(p.x * 1.1));
-  col += u_rim * smoothstep(0.55, 1.0, c) * smoothstep(3.5, 0.3, d) * 0.3;
-  // glassy surface: bright band, specular streak, white rim
-  col = mix(col, mix(u_wTop, u_rim, 0.5), smoothstep(1.3, 0.1, d) * 0.55);
-  col += u_rim * smoothstep(uPx * 9.0, uPx * 6.0, d) * smoothstep(uPx * 3.0, uPx * 5.0, d) * 0.7;
-  col = mix(col, u_rim, smoothstep(uPx * 2.6, uPx * 1.2, d));
-  col = mix(col, col * vec3(0.3, 0.32, 0.55), uDusk);
-  gl_FragColor = vec4(col, 1.0);
-}`;
-const GLASS_FS = `${PAL_GLSL}
-uniform float uDusk;
-varying vec2 vW; varying float vTop;
-void main(){
-  float d = vTop - vW.y;
-  vec3 col = mix(u_wMid, u_wDeep, smoothstep(1.0, 18.0, d));
-  float a = smoothstep(0.0, 0.5, d) * 0.28 + smoothstep(2.0, 16.0, d) * 0.35;
-  col = mix(col, col * vec3(0.3, 0.32, 0.55), uDusk);
+  float caus = smoothstep(0.55, 1.0, c) * smoothstep(3.5, 0.3, d);
+  float a = mix(0.3, 0.82, smoothstep(0.8, 18.0, d));
+  col += u_beam * ray * 0.4 + u_rim * caus * 0.3;
+  a = max(a, ray * 0.5);
+  float band = smoothstep(1.1, 0.08, d);
+  col = mix(col, mix(u_wTop, u_rim, 0.5), band * 0.55); a = max(a, band * 0.6);
+  float rim = smoothstep(0.1, 0.035, d);
+  col = mix(col, u_rim, rim); a = max(a, rim);
+  col = mix(col, col * vec3(0.28, 0.3, 0.55), uDusk);
   gl_FragColor = vec4(col, a);
-}`;
-const BED_FS = `${PAL_GLSL}
-uniform float uDusk, uPx;
-varying vec2 vW; varying float vTop;
+}` }));
+const backMesh = new THREE.Mesh(ribbon(240), new THREE.ShaderMaterial({ uniforms: backU, fog: false,
+  vertexShader: RIB_VS('H3(vec2(x, uZ))', 'seabed(x, uZ) - 2.0'),
+  fragmentShader: `${PAL_GLSL}
+uniform float uTime, uDusk; varying vec2 vW; varying float vTop;
+void main(){ float d = vTop - vW.y; vec3 col = mix(u_wMid * 0.85, u_wDeep, smoothstep(0.0, 16.0, d));
+  float ray = pow(max(0.0, sin(vW.x * 0.11 + d * 0.15 + uTime * 0.15)), 18.0) * smoothstep(16.0, 0.0, d);
+  col += u_beam * ray * 0.15; col = mix(col, col * vec3(0.28, 0.3, 0.55), uDusk); gl_FragColor = vec4(col, 1.0); }` }));
+const frontBed = new THREE.Mesh(ribbon(240), new THREE.ShaderMaterial({ uniforms: frontBedU, fog: false,
+  vertexShader: RIB_VS('seabed(x, uZ)', '-90.0'),
+  fragmentShader: `${PAL_GLSL}
+uniform float uDusk; varying vec2 vW; varying float vTop;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-void main(){
-  float d = vTop - vW.y;
-  vec3 col = mix(u_bed * 1.6, u_bed * 0.25, smoothstep(0.0, 5.0, d));
-  col = mix(col, u_wTop, smoothstep(uPx * 3.0, 0.0, d) * 0.7);
+void main(){ float d = vTop - vW.y; vec3 col = mix(u_bed * 1.7, u_bed * 0.2, smoothstep(0.0, 6.0, d));
+  col = mix(col, u_wTop, smoothstep(0.12, 0.0, d) * 0.7);
   col += step(0.985, hash(floor(vW * 6.0))) * 0.12 * smoothstep(3.0, 0.0, d);
-  col = mix(col, col * vec3(0.3, 0.32, 0.55), uDusk);
-  gl_FragColor = vec4(col, 1.0);
-}`;
-const N_RIB = 420;
-const waterU = ribU(), glassU = ribU(), bedU = ribU();
-const water = new THREE.Mesh(ribbon(N_RIB), new THREE.ShaderMaterial({ uniforms: waterU, vertexShader: RIB_VS('H'), fragmentShader: WATER_FS }));
-const glassM = new THREE.Mesh(ribbon(N_RIB), new THREE.ShaderMaterial({ uniforms: glassU, vertexShader: RIB_VS('H'), fragmentShader: GLASS_FS, transparent: true, depthWrite: false }));
-const bed = new THREE.Mesh(ribbon(160), new THREE.ShaderMaterial({ uniforms: bedU, vertexShader: RIB_VS('seabed'), fragmentShader: BED_FS }));
-waterU.uZ.value = -8; bedU.uZ.value = -6; glassU.uZ.value = 3;
-for (const m of [water, glassM, bed]) { m.frustumCulled = false; scene.add(m); }
-glassM.renderOrder = 20;
+  col = mix(col, col * vec3(0.28, 0.3, 0.55), uDusk); gl_FragColor = vec4(col, 1.0); }` }));
+const floorMat = new THREE.ShaderMaterial({ uniforms: U(), fog: false,
+  vertexShader: `${H_GLSL}
+varying vec3 vW; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); wp.y = seabed(wp.x, wp.z); vW = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+  fragmentShader: `${PAL_GLSL}
+uniform float uTime, uDusk; varying vec3 vW;
+void main(){ vec2 p = vW.xz;
+  float c = sin(p.x * 1.3 + uTime * 1.1 + sin(p.y * 1.1 + uTime * 0.7)) * sin(p.y * 1.5 - uTime * 0.9 + sin(p.x * 0.8));
+  vec3 col = mix(u_bed * 1.4, u_wMid * 0.7, 0.35) + u_beam * smoothstep(0.6, 1.0, c) * 0.18;
+  col = mix(col, u_wDeep, smoothstep(-5.0, -32.0, vW.z) * 0.7);
+  col = mix(col, col * vec3(0.28, 0.3, 0.55), uDusk); gl_FragColor = vec4(col, 1.0); }` });
+const seaFloor = new THREE.Mesh(grid(axis(-170, 260, 0, 1, 0.006), axis(-31, CUT + 0.05, 0, 0.6, 0.03)), floorMat);
+glassMesh.renderOrder = 20;
+for (const m of [glassMesh, backMesh, frontBed, seaFloor]) { m.frustumCulled = false; scene.add(m); }
 
-/* ───────────────────────── sea life ───────────────────────── */
+/* ───────────────────────── horizon: glossy islands and Killer 7 towers ───────────────────────── */
 const tex = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
 const cloudTex = tex(512, 256, (g, w, h) => {
   for (const [x, y, r] of [[0.3, 0.62, 0.2], [0.45, 0.45, 0.26], [0.62, 0.52, 0.22], [0.76, 0.64, 0.16], [0.2, 0.7, 0.13], [0.52, 0.68, 0.2]]) {
@@ -283,44 +326,73 @@ const cloudTex = tex(512, 256, (g, w, h) => {
 });
 const dotTex = tex(64, 64, g => { const gr = g.createRadialGradient(32, 32, 2, 32, 32, 30); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); });
 const clouds = [];
-for (let i = 0; i < 10; i++) {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, depthWrite: false, transparent: true, toneMapped: false }));
-  const sc = rand(9, 20); s.scale.set(sc, sc * 0.5, 1);
-  s.userData = { off: rand(0, 200), y: rand(8, 34), par: rand(0.25, 0.6) }; s.position.z = -40; s.renderOrder = -5;
-  scene.add(s); clouds.push(s);
+for (let i = 0; i < 16; i++) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, fog: false, depthWrite: false, transparent: true, toneMapped: false }));
+  const sc = rand(150, 320); s.scale.set(sc, sc * 0.5, 1);
+  s.userData = { dx: rand(-700, 900), y: rand(60, 240), z: rand(-1100, -650), par: rand(0.75, 0.92) };
+  s.renderOrder = -5; scene.add(s); clouds.push(s);
+}
+const shiny = (color, extra) => new THREE.MeshPhysicalMaterial(Object.assign({ color, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04, iridescence: 0.7, iridescenceIOR: 1.35, iridescenceThicknessRange: [120, 480] }, extra || {}));
+const glossy = (color, extra) => new THREE.MeshPhysicalMaterial(Object.assign({ color, roughness: 0.3, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08 }, extra || {}));
+const islandMat = glossy(0x5be36a), sandMat = glossy(0xffe9b5, { roughness: 0.6, clearcoat: 0.3 }), trunkMat = glossy(0x9c7a55, { roughness: 0.5 }), leafMat = glossy(0x3ccf5a);
+function makeIsland() {
+  const g = new THREE.Group(), s = rand(0.7, 1.4);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20), islandMat); body.scale.set(38 * s, 13 * s, 24 * s); body.position.y = -3 * s; g.add(body);
+  const sand = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 12), sandMat); sand.scale.set(48 * s, 3.2, 31 * s); sand.position.y = -1.6; g.add(sand);
+  for (let i = 0; i < 2 + Math.floor(Math.random() * 3); i++) {
+    const px = rand(-22, 22) * s, pz = rand(-10, 10) * s, base = 6 * s * Math.sqrt(Math.max(0, 1 - (px / (38 * s)) ** 2 - (pz / (24 * s)) ** 2)) - 1;
+    const hgt = rand(10, 16), lean = rand(-4, 4);
+    const curve = new THREE.CatmullRomCurve3([v3(px, base, pz), v3(px + lean * 0.4, base + hgt * 0.5, pz), v3(px + lean, base + hgt, pz)]);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.55, 8), trunkMat));
+    for (let k = 0; k < 6; k++) {
+      const leaf = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), leafMat), a = k / 6 * TAU;
+      leaf.scale.set(5.5, 0.5, 1.6); leaf.position.set(px + lean + Math.cos(a) * 4, base + hgt - 1.2, pz + Math.sin(a) * 4); leaf.rotation.set(0, -a, -0.45); g.add(leaf);
+    }
+  }
+  return g;
+}
+const islands = [];
+for (let i = 0; i < 7; i++) { const m = makeIsland(); m.userData = { x: i * 170 + rand(-40, 40), z: rand(-420, -260) }; scene.add(m); islands.push(m); }
+const towerMat = new THREE.MeshStandardMaterial({ color: 0x7fb8e8, roughness: 0.35, metalness: 0.15, flatShading: true });
+const towers = [];
+for (let i = 0; i < 14; i++) {
+  const w = rand(10, 26), h = rand(18, 75);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, rand(10, 24)), towerMat);
+  m.userData = { x: i * 90 + rand(-30, 30), z: rand(-720, -480), h };
+  scene.add(m); towers.push(m);
 }
 
-const shiny = (color, extra) => new THREE.MeshPhysicalMaterial(Object.assign({ color, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04, iridescence: 0.7, iridescenceIOR: 1.35, iridescenceThicknessRange: [120, 480] }, extra || {}));
+/* ───────────────────────── sea life ───────────────────────── */
 const fishes = [];
 const fishBody = new THREE.SphereGeometry(1, 28, 18), fishTail = new THREE.ConeGeometry(0.55, 0.9, 16), eyeGeo = new THREE.SphereGeometry(0.12, 12, 8);
 const eyeMat = new THREE.MeshPhysicalMaterial({ color: 0x050510, roughness: 0.05, clearcoat: 1 });
-for (let i = 0; i < 9; i++) {
-  const g = new THREE.Group();
-  const mat = shiny(new THREE.Color().setHSL(Math.random(), 0.9, 0.55));
+for (let i = 0; i < 14; i++) {
+  const g = new THREE.Group(), mat = shiny(new THREE.Color().setHSL(Math.random(), 0.9, 0.55));
   const body = new THREE.Mesh(fishBody, mat); body.scale.set(0.9, 0.45, 0.32); g.add(body);
   const tail = new THREE.Mesh(fishTail, mat); tail.rotation.z = -Math.PI / 2; tail.position.x = 1.05; tail.scale.set(1, 1, 0.35); g.add(tail);
   const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.set(-0.55, 0.1, 0.26); g.add(eye);
-  const s = rand(0.45, 1.1); g.scale.setScalar(s);
-  g.userData = { x: rand(-20, 60), y: rand(-10, -2), sp: rand(1.2, 3.5), ph: rand(0, TAU), mat, tail };
-  g.position.z = -2; scene.add(g); fishes.push(g);
+  g.scale.setScalar(rand(0.45, 1.2));
+  g.userData = { x: rand(-30, 60), y: rand(-10, -2), z: rand(-24, 1), sp: rand(1.2, 3.5), ph: rand(0, TAU), tail };
+  scene.add(g); fishes.push(g);
 }
-const weedMat = new THREE.ShaderMaterial({ uniforms: Object.assign({}, SHARED_U, PALU), side: THREE.DoubleSide,
+const weedMat = new THREE.ShaderMaterial({ uniforms: U(), side: THREE.DoubleSide, fog: false,
   vertexShader: `uniform float uTime; varying float vY;
-    void main(){ vec3 p = position; float ph = modelMatrix[3].x * 0.7; p.x += sin(uTime * 1.4 + p.y * 1.8 + ph) * p.y * 0.12; vY = position.y;
+    void main(){ vec3 p = position; float ph = modelMatrix[3].x * 0.7 + modelMatrix[3].z; p.x += sin(uTime * 1.4 + p.y * 1.8 + ph) * p.y * 0.12; p.z += cos(uTime * 1.1 + p.y + ph) * p.y * 0.06; vY = position.y;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
   fragmentShader: `${PAL_GLSL} uniform float uDusk; varying float vY;
-    void main(){ vec3 c = mix(u_bed * 1.2, mix(u_wTop, u_accent, 0.4), clamp(vY / 4.0, 0.0, 1.0)); c = mix(c, c * vec3(0.3, 0.32, 0.55), uDusk); gl_FragColor = vec4(c, 1.0); }` });
+    void main(){ vec3 c = mix(u_bed * 1.2, mix(u_wTop, u_accent, 0.4), clamp(vY / 4.0, 0.0, 1.0)); c = mix(c, c * vec3(0.28, 0.3, 0.55), uDusk); gl_FragColor = vec4(c, 1.0); }` });
 const weeds = [];
-for (let i = 0; i < 16; i++) {
-  const h = rand(2, 5.5);
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.45, h, 1, 12).translate(0, h / 2, 0), weedMat);
-  m.userData = { x: i * 6 + rand(0, 4) }; m.position.z = -4; scene.add(m); weeds.push(m);
+for (let i = 0; i < 28; i++) {
+  const h = rand(2, 6);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.5, h, 1, 12).translate(0, h / 2, 0), weedMat);
+  m.rotation.y = rand(-0.6, 0.6);
+  m.userData = { x: rand(-30, 80), z: rand(-26, 1) }; scene.add(m); weeds.push(m);
 }
-const BUB = 46;
+const BUB = 60;
 const bubMat = shiny(0xb8f4ff, { transparent: true, opacity: 0.45, roughness: 0.02, iridescence: 1 });
 const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 18, 12), bubMat, BUB);
-bubbles.frustumCulled = false; bubbles.position.z = -1; scene.add(bubbles);
-const bubData = Array.from({ length: BUB }, () => ({ x: rand(-30, 30), y: rand(-12, -1), r: rand(0.06, 0.25), w: rand(0, TAU) }));
+bubbles.frustumCulled = false; scene.add(bubbles);
+const bubData = Array.from({ length: BUB }, () => ({ x: rand(-30, 30), y: rand(-12, -1), z: rand(-20, 1), r: rand(0.06, 0.25), w: rand(0, TAU) }));
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = v3();
 
 /* ───────────────────────── the surfer: simple, bubbly, iridescent ───────────────────────── */
@@ -405,8 +477,8 @@ const orbGeo = new THREE.SphereGeometry(0.5, 28, 18);
 let orbs = [];
 const PMAX = 700, pPos = new Float32Array(PMAX * 3).fill(-9999);
 const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-const pMat = new THREE.PointsMaterial({ size: 7, map: dotTex, transparent: true, depthWrite: false, sizeAttenuation: false, toneMapped: false });
-const spray = new THREE.Points(pGeo, pMat); spray.frustumCulled = false; spray.position.z = 1; spray.renderOrder = 15; scene.add(spray);
+const pMat = new THREE.PointsMaterial({ size: 0.32, map: dotTex, transparent: true, depthWrite: false, sizeAttenuation: true, toneMapped: false });
+const spray = new THREE.Points(pGeo, pMat); spray.frustumCulled = false; spray.position.z = 0.3; spray.renderOrder = 15; scene.add(spray);
 const parts = Array.from({ length: PMAX }, () => ({ life: 0 }));
 let pCur = 0;
 function emit(x, y, vx, vy, life) { const p = parts[pCur]; pCur = (pCur + 1) % PMAX; Object.assign(p, { x, y, vx, vy, life }); }
@@ -476,7 +548,8 @@ let dist = 0, trickScore = 0, best = 0, smoothRun = 0, smoothTotal = 0, bestAir 
 let timeLeft = TIME0, fever = 0, feverT = 0, overT = 0, playT = 0, flashA = 0, newBest = false, safe = true;
 let lastBump = null, trailT = 0;
 const input = { held: false };
-const cam = { x: 0, y: 0, h: 24 };
+const cam = { x: 0, y: 0, d: 40 };
+const trail = [];
 let callouts = [];
 try { best = +localStorage.getItem('aero-surf2-best') || 0; } catch (e) { }
 const difficulty = () => clamp(dist / 4000, 0, 1);
@@ -489,7 +562,7 @@ function resetWorld(isSafe) {
   spawnAhead();
   Object.assign(R, { x: 0, y: H(0, 0), vx: 14, vy: 0, speed: 14, ang: 0, mode: 'water', airT: 0, sq: 0 });
   riderRoot.rotation.set(0, 0, 0);
-  cam.x = R.x + 6; cam.y = 0; cam.h = 24;
+  cam.x = R.x + 8; cam.y = -4; cam.d = 40; trail.length = 0;
 }
 function startGame() { resetWorld(false); state = 'play'; playT = 0; input.held = false; flashA = 0.4; }
 
@@ -582,7 +655,7 @@ function step(dt) {
     R.x += R.vx * dt; R.y += R.vy * dt;
     R.ang += wrap(Math.atan2(R.vy, R.vx) * 0.6 - R.ang) * Math.min(1, 4 * dt);
     R.speed = Math.hypot(R.vx, R.vy);
-    if (chance(0.5)) bubData[Math.floor(Math.random() * BUB)] = { x: R.x + rand(-0.5, 0.5), y: R.y + rand(0, 1.2), r: rand(0.06, 0.2), w: rand(0, TAU) };
+    if (chance(0.5)) bubData[Math.floor(Math.random() * BUB)] = { x: R.x + rand(-0.5, 0.5), y: R.y + rand(0, 1.2), z: rand(-0.4, 0.4), r: rand(0.06, 0.2), w: rand(0, TAU) };
     if (depth <= 0 && R.vy > 0) {
       R.mode = 'air'; R.airT = 0.2; R.y = sy; R.vy = Math.min(R.vy * 1.1, 12); splash(R.x, sy, 26, 0.9);
     }
@@ -612,7 +685,7 @@ function updatePalette() {
     timeLeft += bonus; callout(`Zone ${zi + 1}: ${A.name}`, `+${bonus} seconds`, 2.2); sfx.zone();
   }
   lastZone = zi;
-  envU.uTop.value.copy(c3(pal.skyTop)); envU.uHor.value.copy(c3(pal.skyHor)); envU.uLow.value.copy(c3(pal.wMid));
+  srgb(scene.fog.color, pal.skyHor); srgb(islandMat.color, pal.isl); srgb(leafMat.color, mixC(pal.isl, [0, 40, 0], 0.2)); srgb(towerMat.color, pal.tower);
   srgb(rimL.color, pal.accent); srgb(stripeMat.color, pal.accent); srgb(orbMat.color, pal.bubble); srgb(bubMat.color, pal.bubble);
   srgb(hemi.groundColor, pal.wMid); srgb(hemi.color, pal.skyHor);
   const key2 = zi + ':' + Math.round(t * 4);
@@ -639,59 +712,67 @@ function update(dt) {
   figMat.emissiveIntensity = fever ? 0.35 + 0.25 * Math.sin(time * 12) : 0.12;
   if (fever) figMat.emissive.setHSL((time * 0.6) % 1, 1, 0.5); else figMat.emissive.set(0xff2050);
 
-  // camera: side-on, keeps the seabed in view and zooms out when you fly
-  const bottom = -13.5;
-  const aspect = W / H_;
-  const hT = Math.max(clamp((Math.max(R.y, 2) - bottom) / 0.7, 24, 90), 28 / aspect);
-  cam.h += (hT - cam.h) * Math.min(1, dt * 2);
-  const wv = cam.h * aspect;
-  cam.y = bottom + cam.h / 2;
-  cam.x += (R.x + wv * 0.2 - cam.x) * Math.min(1, dt * 6);
-  camera.left = -wv / 2; camera.right = wv / 2; camera.top = cam.h / 2; camera.bottom = -cam.h / 2; camera.updateProjectionMatrix();
-  camera.position.set(cam.x, cam.y, 80);
-  key.position.set(cam.x - 4, cam.y + 8, 87); key.target.position.set(cam.x, cam.y, 0);
-  rimL.position.set(cam.x + 6, cam.y + 2, 74); rimL.target.position.set(cam.x, cam.y, 80);
-  rimL.position.set(cam.x + 8, cam.y + 3, -10); rimL.target.position.set(cam.x, cam.y, 0);
-  bg.position.set(cam.x, cam.y, -60); bg.scale.set(wv * 1.02, cam.h * 1.02, 1);
-  bgU.uCam.value.set(cam.x, cam.y); bgU.uView.value.set(wv, cam.h); bgU.uAspect.value = aspect;
-  const x0 = cam.x - wv / 2 - 2, px = cam.h / H_;
-  for (const u of [waterU, glassU]) { u.uX0.value = x0; u.uW.value = wv + 4; u.uBottom.value = bottom - 30; u.uPx.value = px; }
-  bedU.uX0.value = x0; bedU.uW.value = wv + 4; bedU.uBottom.value = bottom - 40; bedU.uPx.value = px;
-  const near = bumps.map(b => ({ b, c: b.x0 - C_SWELL * simT })).filter(o => o.c > x0 - 60 && o.c < x0 + wv + 70).slice(0, MAXB);
+  // camera: 2.5D perspective side view, tilted down so the surface rolls away and the cutaway shows below
+  const aspect = W / H_, tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const topY = Math.max(R.y, 2) + 9, botY = -13.5;
+  const distT = Math.max((topY - botY) / (2 * tanV) * 1.02, 15 / (tanV * aspect));
+  cam.d += (distT - cam.d) * Math.min(1, dt * 2);
+  const halfW = cam.d * tanV * aspect, xFar = (cam.d + 40) * tanV * aspect + 6;
+  cam.x += (R.x + halfW * 0.42 - cam.x) * Math.min(1, dt * 6);
+  const midY = (topY + botY) / 2 - 0.5, tilt = 0.17;
+  cam.y += (midY - cam.y) * Math.min(1, dt * 4);
+  camera.position.set(cam.x, cam.y + cam.d * Math.sin(tilt), CUT + cam.d * Math.cos(tilt));
+  camera.lookAt(cam.x, cam.y, CUT);
+  key.position.set(R.x - 12, R.y + 25, 30); key.target.position.set(R.x, R.y, 0);
+  rimL.position.set(R.x + 14, R.y + 8, -25); rimL.target.position.set(R.x, R.y, 0);
+  sky.position.copy(camera.position);
+  SHARED_U.uCamP.value.copy(camera.position);
+  ocean.position.x = Math.round(R.x / 2) * 2;
+  seaFloor.position.x = Math.round(R.x / 2) * 2;
+  farOcean.position.set(cam.x, -0.02, -232 - 2000);
+  for (const u of [glassU, frontBedU]) { u.uX0.value = cam.x - halfW - 6; u.uW.value = halfW * 2 + 12; }
+  backU.uX0.value = cam.x - xFar; backU.uW.value = xFar * 2;
+  const near = bumps.map(b => ({ b, c: b.x0 - C_SWELL * simT })).filter(o => o.c > cam.x - 230 && o.c < cam.x + 230).sort((a, b) => Math.abs(a.c - R.x) - Math.abs(b.c - R.x)).slice(0, MAXB);
   for (let i = 0; i < MAXB; i++) { const o = near[i]; if (o) SHARED_U.uBumps.value[i].set(o.c, o.b.a, o.b.wl, o.b.wr); else SHARED_U.uBumps.value[i].set(0, 0, 1, 1); }
+  trailT -= dt;
+  if (trailT <= 0) { trailT = 0.045; if (R.mode === 'water') trail.unshift({ x: R.x - 0.8, z: 0, age: 0, s: 0.9 }); if (trail.length > MAXT) trail.length = MAXT; }
+  for (const tr of trail) tr.age += dt / 1.6;
+  for (let i = 0; i < MAXT; i++) { const tr = trail[i]; SHARED_U.uTrail.value[i].set(tr ? tr.x : 0, tr ? tr.z : 0, tr ? tr.age : 1, tr ? tr.s : 0); }
   SHARED_U.uTime.value = simT;
   SHARED_U.uDusk.value = state === 'title' ? 0 : clamp(1 - timeLeft / 10, 0, 1) * (state === 'over' ? 1 : 0.85);
   SHARED_U.uFever.value += ((fever ? 1 : 0) - SHARED_U.uFever.value) * Math.min(1, dt * 3);
-  key.intensity = lerp(2.6, 1.2, SHARED_U.uDusk.value);
+  key.intensity = lerp(2.6, 1.1, SHARED_U.uDusk.value); hemi.intensity = lerp(1.0, 0.45, SHARED_U.uDusk.value);
 
   // scenery motion
-  const span = wv + 40;
   for (const c of clouds) {
-    const u = c.userData;
-    const sx = ((((u.off - cam.x * u.par) % span) + span) % span) - span / 2;
-    c.position.set(cam.x + sx, u.y, -40);
-    c.material.opacity = 1 - SHARED_U.uDusk.value * 0.7;
+    const u = c.userData, span = 2000;
+    let x = u.dx + camera.position.x * u.par;
+    x = camera.position.x + ((((x - camera.position.x) + span / 2) % span + span) % span) - span / 2;
+    c.position.set(x, u.y, u.z); c.material.opacity = 1 - SHARED_U.uDusk.value * 0.7;
   }
+  for (const m of islands) { const u = m.userData; if (u.x < cam.x - 420) { u.x += 7 * 170; u.z = rand(-420, -260); } m.position.set(u.x, 0, u.z); }
+  for (const m of towers) { const u = m.userData; if (u.x < cam.x - 700) { u.x += 14 * 90; u.z = rand(-720, -480); } m.position.set(u.x, u.h / 2 - 4, u.z); }
   for (const f of fishes) {
     const u = f.userData;
     u.x -= u.sp * dt; u.ph += dt * 6;
-    if (u.x < cam.x - wv / 2 - 6) { u.x = cam.x + wv / 2 + rand(4, 40); u.y = rand(Math.max(bottom + 2, seabed(u.x) + 1.5), -1.8); }
-    f.position.set(u.x, u.y + Math.sin(u.ph * 0.3) * 0.3, -2);
+    if (u.x < cam.x - xFar) { u.x = cam.x + xFar + rand(2, 30); u.z = rand(-24, 1); u.y = rand(seabedZ(u.x, u.z) + 1.5, -1.8); }
+    f.position.set(u.x, u.y + Math.sin(u.ph * 0.3) * 0.3, u.z);
     u.tail.rotation.y = Math.sin(u.ph) * 0.5;
   }
   for (const w of weeds) {
-    if (w.userData.x < cam.x - wv / 2 - 4) w.userData.x += Math.max(16 * 6, wv + 10);
-    w.position.set(w.userData.x, seabed(w.userData.x) - 0.3, -4);
+    const u = w.userData;
+    if (u.x < cam.x - xFar - 4) { u.x = cam.x + xFar + rand(0, 30); u.z = rand(-26, 1); }
+    w.position.set(u.x, seabedZ(u.x, u.z) - 0.3, u.z);
   }
   for (let i = 0; i < BUB; i++) {
     const b = bubData[i];
     b.y += dt * (0.6 + b.r * 4); b.w += dt * 2;
-    if (b.y > H(b.x, simT) - 0.2 || b.x < cam.x - wv / 2 - 2) { b.x = cam.x + rand(-wv / 2, wv / 2); b.y = seabed(b.x) + rand(0, 2); b.r = rand(0.06, 0.24); }
-    tmpS.setScalar(b.r); tmpM.compose(v3(b.x + Math.sin(b.w) * 0.15, b.y, 0), tmpQ, tmpS); bubbles.setMatrixAt(i, tmpM);
+    if (b.y > H(b.x, simT) - 0.2 || b.x < cam.x - xFar) { b.x = cam.x + rand(-xFar, xFar); b.z = rand(-20, 1); b.y = seabedZ(b.x, b.z) + rand(0, 2); b.r = rand(0.06, 0.24); }
+    tmpS.setScalar(b.r); tmpM.compose(v3(b.x + Math.sin(b.w) * 0.15, b.y, b.z), tmpQ, tmpS); bubbles.setMatrixAt(i, tmpM);
   }
   bubbles.instanceMatrix.needsUpdate = true;
   for (const o of orbs) { o.t += dt; o.mesh.visible = !o.taken; o.mesh.position.y = o.y + Math.sin(o.t * 2.5) * 0.15; }
-  orbs = orbs.filter(o => { if (o.x < cam.x - wv) { scene.remove(o.mesh); return false; } return true; });
+  orbs = orbs.filter(o => { if (o.x < cam.x - halfW * 2) { scene.remove(o.mesh); return false; } return true; });
   for (let i = 0; i < PMAX; i++) {
     const p = parts[i];
     if (p.life <= 0) { pPos[i * 3 + 1] = -9999; continue; }
@@ -699,7 +780,6 @@ function update(dt) {
     pPos[i * 3] = p.x; pPos[i * 3 + 1] = p.y; pPos[i * 3 + 2] = 0;
   }
   pGeo.attributes.position.needsUpdate = true;
-  pMat.size = clamp(220 / cam.h, 3, 9);
 
   for (const c of callouts) c.age += dt;
   callouts = callouts.filter(c => c.age < c.life);
