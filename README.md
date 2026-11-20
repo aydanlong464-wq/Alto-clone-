@@ -1,6 +1,6 @@
 # Aero Surf
 
-A physics-based endless surfing game in 3D, styled in Frutiger Aero: glossy turquoise ocean, puffy clouds, palm-tree islands, floating bubbles, lens flare, and a shiny 3D surfer on a 3D board.
+A side-on surfing game: Frutiger Aero gloss with Killer 7 colors. The camera is flat and side-on, so you see a cross-section of the ocean: light rays, caustics, fish, seaweed and the seabed under the waves. The surfer is a bubbly, iridescent figure with round arms and legs and a floating head, and it is real 3D (three.js) lit from the side.
 
 ## Play
 
@@ -8,26 +8,30 @@ Open `index.html` in a modern browser with WebGL. It loads three.js from the jsD
 
 To play it from a link, turn on GitHub Pages: **Settings → Pages → Deploy from a branch → `main` / root**. The game then runs at `https://<your-username>.github.io/<repo-name>/`.
 
-## Controls
+## How to play
 
 | Input | Action |
 | --- | --- |
-| Tap / Space / ↑ | Jump |
-| Hold in the air | Backflip |
+| Hold (tap-and-hold / Space) | Push into the wave. Going downhill this builds speed; in the air you dive. |
+| Let go | Going uphill, letting go launches you off the crest |
 | P / Esc | Pause |
 | M | Mute |
 | R | Turn a custom model 90° |
 
-Land with your board matching the wave or you wipe out. Jump the rocks and buoys.
+- **Smooth!** Land matching a downslope to keep your speed and get a boost. Three in a row starts **Fever** (double points, faster, rainbow glow).
+- **Splash! / Plunge!** Landing against a wave costs speed. A hard bad landing dunks you under the water until you float back up.
+- **Beat the sunset.** You start with 45 seconds. Every 600 m you reach a new zone and get more time. When the clock runs out, night falls and the run ends.
+- **Zones:** Vista Lagoon, Red Room, Neon Floor, Ultraviolet, Sunset Gloss, Cyber Lime.
 
 ## How it works
 
-- **The ocean** is one wave function shared by the GPU shader and the physics, so the board rides exactly the water you see. Three wind-wave layers plus big rolling swells that move toward you. The shader adds sky reflections (Fresnel), sun glitter, turquoise light through raised water, foam on steep faces and crests, and a foam wake behind the board.
-- **Physics.** Gravity pulls you along the wave slope. You launch when a crest falls away faster than gravity can follow, and landings project your velocity back onto the water.
-- **The surfer** is built from glossy capsules with leg IK, so the knees bend as it crouches. You can swap in your own model; see [`models/README.md`](models/README.md).
-- **Zones** change every 1000 m: Lagoon, Deep Blue, Sunset Gloss, Aurora (night) and Citrus.
+The water is one wave function shared by the GPU shaders and the physics, so the board rides exactly what you see. Swells are a chain of rolling hills moving toward you, with small chop on top. You launch when a crest curves away faster than gravity can pull you down, and holding raises your gravity so you stick to the water and dive faster.
+
+A custom surfer can be swapped in; see [`models/README.md`](models/README.md).
 
 ## Other versions
+
+- `surf3d.html`: the earlier 3D-camera surf version with backflips, rocks and buoys.
 
 - `runner.html`: the 2D Aero downhill runner.
 - `noir.html`: the original dark, high-contrast 2D runner.
