@@ -1132,7 +1132,11 @@ function step(dt) {
     if (state === 'over') R.speed *= Math.exp(-0.8 * dt);
     R.speed = clamp(R.speed, state === 'over' ? 0 : MINS, maxs);
     const nx = R.x + R.speed * Math.cos(th) * dt, ny = H(nx, simT), py = R.y + R.vy * dt - 0.5 * g * dt * dt;
-    if (py > ny + 0.02) { R.x = nx; R.y = py; R.vx = R.speed * Math.cos(th); R.mode = 'air'; R.airT = 0; }
+    // the fling: you leave the wave when your speed carries you over the curve faster than gravity can hold you on it
+    const hp = H(R.x + 0.6, simT), h0 = H(R.x, simT), hm = H(R.x - 0.6, simT), yp = (hp - hm) / 1.2;
+    const kappa = ((hp - 2 * h0 + hm) / 0.36) / Math.pow(1 + yp * yp, 1.5);
+    const fling = -kappa * R.speed * R.speed > g * Math.cos(th) * 1.03;
+    if (fling || py > ny + 0.06) { R.x = nx; R.y = Math.max(py, ny + 0.01); R.vx = R.speed * Math.cos(th); R.vy = R.speed * Math.sin(th); R.mode = 'air'; R.airT = 0; }
     else { R.vy = clamp((ny - R.y) / dt, -40, 40); R.x = nx; R.y = ny; R.ang += wrap(th - R.ang) * Math.min(1, 16 * dt); R.vx = R.speed * Math.cos(th); }
     if (R.speed > 5) {
       // spray off the tail: droplets fanning back and up, a rooster tail at speed, and mist
