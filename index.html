@@ -1013,7 +1013,7 @@ function updateAudio() {
 }
 
 /* ───────────────────────── game rules ───────────────────────── */
-const G = 20, G_AIR = 14, HOLD = 3.0, HOLD_UP = 2.0, DIVE_PUSH = 0, DRAG = 0.0015, FRIC = 0.15, MINS = 6, MAXS = 58;
+const G = 20, G_AIR = 14, HOLD = 3.0, HOLD_UP = 2.0, DIVE_PUSH = 0, DRAG = 0.0042, FRIC = 0.15, MINS = 6, MAXS = 44;
 const STEP = 1 / 120, ZONE = 600, TIME0 = 45;
 const R = { x: 0, y: 0, vx: 0, vy: 0, speed: 0, ang: 0, mode: 'water', airT: 0, tuck: 0.2, wings: 0, sq: 0 };
 let state = 'title', paused = false, simT = 0, time = 0, acc = 0;
@@ -1042,14 +1042,14 @@ function startGame() { resetWorld(false); state = 'play'; playT = 0; ptrs.clear(
 
 function spawnAhead() {
   const d = difficulty();
-  if (!keys.length) { keys.push({ x0: -80 + C_SWELL * simT, y: 0, peak: false }); keys.push({ x0: 30 + C_SWELL * simT, y: 0.2, peak: false }); }
+  if (!keys.length) { keys.push({ x0: -140 + C_SWELL * simT, y: 16, peak: true }); keys.push({ x0: -50 + C_SWELL * simT, y: 16, peak: true }); keys.push({ x0: 60 + C_SWELL * simT, y: -1.2, peak: false }); }
   for (;;) {
     const last = keys[keys.length - 1], lx = keyX(last, simT);
     if (lx > R.x + 420) break;
-    const peak = !last.peak, early = clamp(lx / 160, 0.35, 1);
+    const peak = !last.peak, early = clamp(0.7 + lx / 500, 0.7, 1);
     // each half-hill: a smooth run from crest to valley or back; longer and taller the further you go
-    const len = rand(19, 28) * (1 + 0.5 * d) * (0.7 + 0.3 * early);
-    const y = peak ? rand(4, 7) * (1 + 0.7 * d) * early : rand(-2, -0.5);
+    const len = rand(20, 28) * (1 + 0.3 * d) * (0.8 + 0.2 * early);
+    const y = peak ? rand(4.5, 7) * (1 + 0.35 * d) * early : rand(-2, -0.5);
     const x = lx + len;
     keys.push({ x0: x + C_SWELL * simT, y, peak });
     if (!safe && peak && x > 70) {
@@ -1079,10 +1079,10 @@ function land(sy) {
   R.y = sy; R.angVel = 0;
   if (air > 0.35 && !demo) { bestAir = Math.max(bestAir, air); trickScore += Math.floor(air * 40) * (fever ? 2 : 1); }
   // Dune's crash: slamming nose-first into a slope at speed
-  if (!demo && diff > lerp(0.8, 0.62, difficulty()) && impact > lerp(10, 7.5, difficulty())) { smoothRun = 0; wipeout(th > 0.1 ? 'You slammed into the wave face.' : 'You came down too steep.'); return; }
+  if (!demo && playT > 9 && diff > lerp(0.8, 0.62, difficulty()) && impact > lerp(10, 7.5, difficulty())) { smoothRun = 0; wipeout(th > 0.1 ? 'You slammed into the wave face.' : 'You came down too steep.'); return; }
   const perfect = air > 0.35 && diff < 0.22 && th < -0.05;
   R.mode = 'water'; R.vy = 0; R.ang = th;
-  R.speed = clamp(Math.max(along, 0) * (perfect ? 1.06 : 1) + (perfect ? 2 : 0), MINS, MAXS + 10);
+  R.speed = clamp(Math.max(along, 0) * (perfect ? 1.05 : 1) + (perfect ? 1.5 : 0), MINS, MAXS + 5);
   R.sq = clamp(impact / 25, 0.12, 0.6);
   if (air > 0.35) {
     splash(R.x, sy, 12 + Math.min(impact, 30) * 1.5, 0.6 + Math.min(impact, 30) / 30);
@@ -1119,10 +1119,10 @@ function step(dt) {
   let hold = input.held;
   if (demo) hold = R.mode === 'water' ? slopeAt(R.x, simT) < -0.04 : (R.mode === 'air' && R.vy < 0 && Math.abs(wrap(Math.atan2(R.vy, R.vx) - Math.atan(slopeAt(R.x + R.vx * 0.3, simT)))) > 0.25);
   if (state === 'over') hold = false;
-  const g = hold ? G * HOLD : G_AIR, maxs = MAXS + (fever ? 6 : 0) + (speedBoost > 0 ? 14 : 0);
+  const g = hold ? G * HOLD : G_AIR, maxs = MAXS + (fever ? 4 : 0) + (speedBoost > 0 ? 7 : 0);
   if (speedBoost > 0) {
     speedBoost -= dt;
-    if (R.mode === 'water') R.speed += 16 * dt; else if (R.mode === 'air') R.vx += 9 * dt;
+    if (R.mode === 'water') R.speed += 9 * dt; else if (R.mode === 'air') R.vx += 5 * dt;
     if (chance(0.6)) emit(R.x - 0.8, R.y + rand(0.3, 2), -R.vx * 0.3 + rand(-1, 1), rand(-0.5, 1.5), 0.45, rand(-0.5, 0.5));
   }
   if (R.mode === 'water') {
@@ -1149,7 +1149,7 @@ function step(dt) {
     }
   } else if (R.mode === 'air') {
     R.airT += dt;
-    R.vy -= g * dt; R.vx *= 1 - 0.004 * dt; if (hold) R.vx += DIVE_PUSH * dt;
+    R.vy -= g * dt; R.vx *= 1 - (0.02 + 0.0006 * R.vx) * dt; if (hold) R.vx += DIVE_PUSH * dt;
     R.x += R.vx * dt; R.y += R.vy * dt;
     R.speed = Math.hypot(R.vx, R.vy);
     R.angVel = 0;
@@ -1172,7 +1172,7 @@ function step(dt) {
   if (state === 'play') {
     // a wall of whitewater rolls in behind you and speeds up; keep your speed or it catches you
     const dd = difficulty(), cw = clamp(dist / 6000, 0, 1.4), cap = lerp(60, 34, Math.min(cw, 1));
-    chaseX = Math.max(chaseX + (playT > 4 ? 17 + 30 * cw : 6) * dt, R.x - cap);
+    chaseX = Math.max(chaseX + (playT > 4 ? 15 + 20 * cw : 6) * dt, R.x - cap);
     if (chaseX >= R.x - 0.5) { wipeout('The whitewater caught you.'); return; }
   }
   if (state === 'play') {
@@ -1181,7 +1181,7 @@ function step(dt) {
       if (!o.taken && Math.abs(o.x - R.x) < 1.7 && Math.abs(o.y - (R.y + 1.0)) < 1.9) {
         // pop: an instant kick, then a couple of seconds of extra push
         o.taken = true; speedBoost = 2.2;
-        if (R.mode === 'water') R.speed = Math.min(R.speed + 6, MAXS + 14); else R.vx += 5;
+        if (R.mode === 'water') R.speed = Math.min(R.speed + 4, MAXS + 7); else R.vx += 3;
         trickScore += 25 * (fever ? 2 : 1); callout('Boost', '', 0.8); sfx.boost();
         for (let i = 0; i < 16; i++) emit(o.x + rand(-0.4, 0.4), o.y + rand(-0.4, 0.4), rand(-4, 4), rand(-1, 5), 0.5, rand(-2, 2));
         for (let i = 0; i < 5; i++) emitMist(o.x, o.y, rand(-2, 2), rand(0.5, 2), 0.7);
